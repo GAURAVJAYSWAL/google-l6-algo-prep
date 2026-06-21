@@ -1,0 +1,372 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>B01 — Design a large-scale search / indexing system</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="../index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="../index.html">&larr; All system-design questions</a><article class="doc"><h1>B01 — Design a large-scale search / indexing system</h1>
+<p>This is the single highest-probability prompt for the Search Feature team, so it must be flawless. It tests whether you can take an unbounded corpus, build and shard an inverted index, fan a query out across thousands of shards, rank the merged results, and keep the index fresh — all under a strict p99 latency budget. Google asks it because every interesting product (Web, Drive, Photos, Code, Ads) is a search problem underneath, and a Staff engineer is expected to own the full ingest-index-serve-rank loop, not just one box.</p>
+<h2>Lead with this — your résumé hook</h2>
+<p>I have built and operated hybrid search over a <strong>1B+ document corpus</strong> serving production traffic at <strong>p99 ~200 ms</strong>, combining a Solr/Elasticsearch lexical tier with a dense-vector tier for semantic recall. So when I design this, I am not reasoning from a textbook — I have personally tuned shard counts against tail latency, fought segment-merge storms during incremental indexing, and reconciled BM25 scores with cosine similarity in a single ranking pass. I will design from that lived experience and flag the traps I have actually hit in production.</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>Corpus &amp; scope:</strong> Web-scale open crawl, or a bounded enterprise corpus (Drive/email)? Roughly how many documents and what is the average document size? This sets shard count and storage.</li>
+<li><strong>Query type:</strong> Keyword/boolean only, or do we need phrase, fuzzy, faceted, and <strong>semantic (vector) recall</strong>? Hybrid changes the whole serving tier.</li>
+<li><strong>Read/write mix:</strong> What is query QPS vs. document ingest/update rate? Search is read-heavy (often 1000:1), but a news/social corpus inverts the freshness pressure.</li>
+<li><strong>Freshness SLA:</strong> Must a newly created document be findable in seconds (news, email), minutes, or is hourly batch indexing acceptable? This is the single biggest architectural fork.</li>
+<li><strong>Latency target:</strong> What is the p99 budget end-to-end? I will assume <strong>200 ms p99</strong> unless told otherwise, because that is where users perceive search as instant.</li>
+<li><strong>Ranking sophistication:</strong> Lexical relevance only, or full multi-stage ranking with a learned model (LTR) and personalization signals?</li>
+<li><strong>Consistency:</strong> Is eventual consistency on the index acceptable (it almost always is for search), or are there compliance cases (right-to-be-forgotten, ACL changes) that need bounded staleness?</li>
+<li><strong>Access control:</strong> Is every document world-readable, or must results be filtered per-user by ACL at query time?</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> Search has no single "correct" architecture — it is a chain of tradeoffs (freshness vs. throughput, recall vs. latency, ranking quality vs. cost). By asking these, you show you know the design <em>bifurcates</em> on freshness SLA and hybrid-vs-lexical. The freshness and ACL questions in particular separate L6 from L5 — they are the ones juniors forget and that blow up in production.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In scope:</strong>
+- Ingest documents from crawlers/connectors and build a queryable index.
+- Full-text query: keyword, phrase, boolean, with relevance ranking.
+- Hybrid retrieval: lexical (inverted index) + semantic (vector ANN), merged.
+- Pagination and top-K retrieval.
+- Incremental/near-real-time indexing of new and updated documents; deletes/tombstones.
+- Multi-stage ranking pipeline (cheap retrieval → expensive re-rank).
+- Per-user ACL filtering (if corpus is access-controlled).</p>
+<p><strong>Out of scope (defer):</strong>
+- The crawler's politeness/scheduling internals (we consume its output).
+- Spell-correction, query autocomplete, and "did you mean" (separate services).
+- Ads blending and monetization.
+- Cross-lingual translation of queries.
+- Full personalization model training (we consume features).</p>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>1B+ docs, ~50K query QPS peak, ~10K doc-update QPS. Read-heavy (~1000:1).</td>
+</tr>
+<tr>
+<td>p99 latency</td>
+<td><strong>200 ms</strong> end-to-end query. Retrieval budget ~50–80 ms, rank ~50 ms, fan-out merge + network the rest.</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td>99.99% for query path (serving). Indexing can tolerate brief outages (queue absorbs).</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td><strong>Eventual</strong> on the index — a doc becomes searchable seconds-to-minutes after ingest. Query reads are best-effort consistent across replicas.</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>11 nines on the source-of-truth document store + commit log. The index is a <em>derived</em> artifact and is always rebuildable.</td>
+</tr>
+<tr>
+<td>Freshness</td>
+<td>New doc searchable in &lt; 10 s for the NRT path; bulk re-index hourly.</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>ACL filtering at query time; index encrypted at rest; per-tenant isolation.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>Corpus &amp; index size
+  Documents:                 1e9 docs
+  Avg doc text:              ~10 KB  -&gt; raw text ~ 10 TB
+  Inverted index (postings): ~30-40% of text  -&gt; ~3-4 TB
+  Vector index: 1e9 * 768 dims * 1 byte (PQ/int8) ~ 768 GB
+                (full fp32 would be 3 TB -&gt; we quantize)
+
+Sharding
+  Target ~50 GB postings per shard  -&gt; ~80 lexical shards
+  Replicate x3 for availability+read throughput -&gt; ~240 index servers
+  Vector ANN (HNSW) wants RAM: 768 GB / ~64 GB usable per node -&gt; ~12 vector shards x3
+
+Query QPS
+  Peak read:   50,000 QPS
+  Each query fans out to ALL ~80 shards -&gt; 50K * 80 = 4M shard-RPCs/sec
+  -&gt; each shard replica handles ~4M / 240 ~ 16K shard-queries/sec (cacheable)
+
+Write/ingest QPS
+  10,000 doc updates/sec -&gt; commit log + segment build
+  Segment flush every few seconds; merge in background
+
+Cache
+  Hot query result cache: assume 20% of queries are repeats in a 5-min window
+  Top 1M cached query results * ~5 KB  ~ 5 GB  (fits in Redis cluster)
+  Per-shard OS page cache holds hot postings in RAM
+
+Bandwidth
+  50K QPS * ~10 KB response (10 results + snippets) ~ 500 MB/s egress
+</code></pre>
+<h2>5) API design</h2>
+<pre><code># Query
+POST /v1/search
+  body: {
+    q: &quot;query string&quot;,
+    filters: { lang: &quot;en&quot;, after: &quot;2026-01-01&quot; },
+    top_k: 10,
+    page_token: &quot;&lt;opaque&gt;&quot;,
+    mode: &quot;hybrid&quot; | &quot;lexical&quot; | &quot;semantic&quot;,
+    user_ctx: { uid, acl_groups[] }     # for ACL filtering + personalization
+  }
+  -&gt; { results: [{doc_id, score, title, snippet, highlights[]}],
+       next_page_token, total_estimate, latency_ms }
+
+# Ingest (internal, from connectors/crawler)
+POST /v1/documents:batchUpsert
+  body: { docs: [{doc_id, content, metadata, acl[]}] }
+  -&gt; { accepted, indexing_offset }      # offset = position in commit log
+
+DELETE /v1/documents/{doc_id}           # writes a tombstone
+
+# Ops
+GET /v1/index/health                    # per-shard freshness lag, segment count
+</code></pre>
+<h2>6) Architecture — request &amp; data flow</h2>
+<h3>(a) ASCII layered diagram</h3>
+<pre><code>                 Clients (web / mobile / API)
+                              |
+                              v
+                       [ CDN / Edge ]            cache popular {query -&gt; results}, static assets
+                              |  miss
+                              v
+                  [ Global LB / GeoDNS ]         anycast, health-checked, route to nearest region
+                              |
+                              v
+                    [ Query API Gateway ]        authN/Z, rate-limit, parse, ACL context
+                              |
+                              v
+            +========== Query Coordinator (root) ==========+   &lt;-- scatter/gather brain
+            |   1. parse/normalize  2. plan  3. fan-out     |
+            |   4. merge top-K      5. re-rank  6. hydrate   |
+            +===============================================+
+                   |  (sync scatter)        |  (sync)
+        +----------+-----------+             v
+        v          v           v      [ Result Cache (Redis) ]  query-&gt;topK, 5-min TTL
+  [Lexical    [Lexical    [Lexical          | miss -&gt; compute
+   Shard 1]    Shard 2] .. Shard N]
+   (inverted   each: postings + BM25 +      [ Vector ANN shards (HNSW/IVF-PQ) ]
+    index)     per-shard top-k              semantic recall, returns doc_ids+sim
+        \          |          /                    |
+         \         v         /                     v
+          \  [ per-shard top-k ]            [ candidate union ]
+           \_________ \ ______/                    |
+                       v                           v
+              [ Merge + heap top-K ] &lt;----- combine lexical + vector candidates
+                       |
+                       v
+              [ Re-rank service (LTR model) ]  features: BM25, sim, freshness, clicks
+                       |
+                       v
+              [ Doc store hydrate ]  fetch title/snippet/highlight by doc_id
+                       |
+                       v
+                   results -&gt; client
+
+
+WRITE / INDEXING PATH (async, decoupled)
+   Crawler/Connectors --&gt; [ Ingest API ] --&gt; [ Commit Log (Kafka) ]  durable, ordered
+                                                    |
+                              +---------------------+--------------------+
+                              v                                          v
+                    [ Doc Store (source of truth) ]          [ Indexer Workers ]
+                    (sharded KV / blob)                       parse, tokenize, embed
+                              |                                          |
+                              | (used for hydrate)        build inverted segments + vectors
+                              v                                          v
+                       replicas x3                         [ Index Shards (lexical+vector) ]
+                                                           segment flush (NRT) + bg merge
+</code></pre>
+<p><strong>Read path (sync, latency-critical):</strong> Client hits CDN; a popular <code>{query -&gt; results}</code> may return from edge. On miss, GeoDNS routes to the nearest region, the gateway authenticates and attaches the user's ACL context, and the request lands on a <strong>Query Coordinator</strong>. The coordinator checks the Redis result cache; on miss it <strong>scatters</strong> the query to all lexical shards in parallel and, for hybrid mode, simultaneously to the vector ANN shards. Each lexical shard walks its postings lists, scores with BM25, and returns only its <strong>per-shard top-k</strong> (not all matches — this is the key fan-out trick). The coordinator <strong>gathers</strong>, merges via a bounded heap, unions in the vector candidates, runs the merged candidate set through the <strong>LTR re-ranker</strong> (which pulls features like freshness and click signals), hydrates the final top-10 with titles/snippets from the doc store, caches the result, and returns. Every fan-out call has a tight deadline; slow shards are dropped via <strong>hedged requests</strong> to a replica.</p>
+<p><strong>Write path (async, throughput-oriented):</strong> Connectors push documents into the <strong>Ingest API</strong>, which appends to a durable, ordered <strong>commit log (Kafka)</strong> and writes the canonical copy to the <strong>doc store</strong>. <strong>Indexer workers</strong> consume the log, tokenize and embed each doc, and append to in-memory segments on the owning shard. Segments flush to disk every few seconds (the NRT path that makes a doc searchable in &lt; 10 s) and are compacted by background merges. Because the index is a <em>derived</em> artifact rebuildable from the log + doc store, indexing can fall behind or crash without data loss — the queue absorbs the backlog.</p>
+<h3>(b) Mermaid flowchart</h3>
+<div class="mermaid">
+flowchart TD
+  client[Clients web / mobile / API] --> cdn[CDN / Edge result cache]
+  cdn -->|miss| lb[Global LB / GeoDNS]
+  lb --> gw[Query API Gateway authZ + ACL ctx]
+  gw --> coord{{Query Coordinator scatter/gather}}
+  coord --> rcache[(Result Cache Redis)]
+  coord -->|scatter| s1[Lexical Shard 1 inverted index]
+  coord -->|scatter| s2[Lexical Shard 2]
+  coord -->|scatter| sN[Lexical Shard N]
+  coord -->|scatter| vec[(Vector ANN HNSW / IVF-PQ)]
+  s1 --> merge[Merge + heap top-K]
+  s2 --> merge
+  sN --> merge
+  vec --> merge
+  merge --> rerank[Re-rank LTR model]
+  rerank --> hydrate[Doc store hydrate snippets]
+  hydrate --> client
+
+  crawl[Crawler / Connectors] --> ingest[Ingest API]
+  ingest --> log[[Commit Log Kafka]]
+  log --> docs[(Doc Store source of truth)]
+  log --> idx[Indexer Workers parse+embed]
+  idx --> shards[(Index Shards lexical + vector)]
+  docs -. hydrate .-> hydrate
+  shards -. serves .-> s1
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<ul>
+<li><strong>Inverted index (per lexical shard):</strong> the core structure — <code>term -&gt; postings list</code> of <code>(doc_id, term_freq, positions)</code>. Stored as immutable, compressed segments (LSM-style: append new segments, merge in background, never mutate in place). Justification: search is read-dominated with append-heavy writes; immutable segments give lock-free reads and let the OS page-cache hot postings. Positions enable phrase queries. This is exactly the Lucene model and it is the right primitive — do not reinvent it.</li>
+<li><strong>Vector index:</strong> <code>doc_id -&gt; embedding</code>, served by an ANN structure. <strong>HNSW</strong> when RAM allows (best recall/latency, but memory-hungry); <strong>IVF-PQ</strong> when the corpus is too large to hold full vectors in RAM (quantize to int8/PQ codes, trade a little recall for 4–8× memory savings). At 1B docs we quantize.</li>
+<li><strong>Document store (source of truth):</strong> sharded KV or blob store keyed by <code>doc_id</code>, holding canonical text + metadata + ACL. Justification: needed for hydration (snippets) and to <em>rebuild the index</em> after any corruption. Durability lives here, not in the index.</li>
+<li><strong>Commit log:</strong> Kafka, partitioned by <code>doc_id</code> hash, retained long enough to replay a full re-index. This is the durability + ordering backbone.</li>
+<li><strong>Metadata/forward index:</strong> <code>doc_id -&gt; (length, freshness, static rank, ACL groups)</code> co-located on each shard for fast scoring and ACL filtering without a network hop.</li>
+</ul>
+<h2>8) Deep dive</h2>
+<p><strong>Query fan-out, merge, and the latency budget (the crux).</strong> A single query must touch every shard because any shard can hold a matching doc. With N=80 shards, the coordinator issues 80 parallel RPCs and waits for the <em>slowest</em> — so p99 of the whole query is governed by the p99 of the <strong>tail shard</strong>, not the average. Three techniques tame this:</p>
+<ol>
+<li><strong>Per-shard top-k truncation:</strong> each shard returns only its local top-k (say k=100), not all matches. The coordinator merges 80×100 candidates into a global top-K with a heap. This bounds network and merge cost regardless of how many docs match.</li>
+<li><strong>Hedged / backup requests:</strong> if a shard hasn't responded by, say, the 95th-percentile latency, fire a duplicate to a replica and take whichever returns first. This is the single most effective tail-latency tool — it converts a slow replica from a p99 disaster into a non-event, at a few percent extra load.</li>
+<li><strong>Deadline propagation:</strong> the coordinator stamps a hard deadline; shards that can't finish return partial results rather than blowing the budget. Search degrades gracefully (slightly worse recall) instead of timing out.</li>
+</ol>
+<p><strong>Freshness / incremental indexing.</strong> The fork from the clarify step lands here. The NRT path keeps a small <strong>in-memory segment</strong> per shard that absorbs new docs and is queried alongside the on-disk segments — so a doc is searchable seconds after ingest, before it's ever flushed. Deletes are <strong>tombstones</strong> (a deleted-docs bitset) applied at query time and physically purged during the next merge; you never do an in-place delete in an immutable segment. The tension: frequent flushes give freshness but create many tiny segments that slow queries and trigger <strong>merge storms</strong> (I/O spikes that hurt query p99). The lever is the flush interval and a tiered merge policy — I tune flush to the freshness SLA and throttle merges to protect the read path. This is precisely the production trap I called out in the hook.</p>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Choice &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CAP</td>
+<td><strong>AP</strong> for the serving index — favor availability and low latency; accept that a just-ingested doc may be briefly missing. The source-of-truth store is CP.</td>
+</tr>
+<tr>
+<td>Consistency model</td>
+<td>Eventual on the index; bounded staleness via freshness lag SLA (&lt; 10 s NRT).</td>
+</tr>
+<tr>
+<td>Partitioning</td>
+<td><strong>Document-partitioned (sharding by doc)</strong> — each shard is a self-contained mini-index. Scales writes and storage; cost is every query fans out to all shards. (Term-partitioning avoids fan-out but creates brutal hot-term skew and hard multi-term joins — rejected.)</td>
+</tr>
+<tr>
+<td>Replication</td>
+<td>x3 per shard for availability + read throughput + hedged requests. Async replication of segments.</td>
+</tr>
+<tr>
+<td>Caching</td>
+<td>Multi-layer: edge/CDN for popular queries, Redis result cache (5-min TTL), per-shard OS page cache for hot postings.</td>
+</tr>
+<tr>
+<td>Sync vs async</td>
+<td>Query path fully <strong>sync</strong> (latency-critical). Indexing fully <strong>async</strong> via Kafka (throughput, decoupling, absorb spikes).</td>
+</tr>
+<tr>
+<td>Lexical vs vector</td>
+<td><strong>Hybrid.</strong> Lexical for precision/exact-match and cheap recall; vector for semantic recall; merge then LTR re-rank. Pure-vector loses exact-match; pure-lexical loses synonyms.</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Tail-latency shard (the #1 risk):</strong> one slow shard dominates p99. <em>Mitigation:</em> hedged requests to replicas + deadline-based partial results.</li>
+<li><strong>Hot term / hot query:</strong> a viral query or a term like "the" creates a huge postings scan or stampedes one path. <em>Mitigation:</em> result cache absorbs repeat queries; stop-word handling and term-frequency caps; per-shard top-k bounds the scan.</li>
+<li><strong>Merge storm / segment explosion:</strong> aggressive NRT flushing → many small segments → query slowdown + I/O spike. <em>Mitigation:</em> tiered merge policy, merge throttling, separate I/O budget from the read path.</li>
+<li><strong>Thundering herd on cache expiry:</strong> a popular query's cache entry expires and 1000s of requests recompute simultaneously. <em>Mitigation:</em> request coalescing (single-flight) + jittered TTLs + serve-stale-while-revalidate.</li>
+<li><strong>Indexer backlog:</strong> ingest spike outpaces indexers, freshness lag grows. <em>Mitigation:</em> Kafka buffers; autoscale indexer workers on consumer lag; freshness is degraded, not lost.</li>
+<li><strong>Coordinator SPOF:</strong> <em>Mitigation:</em> coordinators are stateless and horizontally scaled behind the LB; any one can serve any query.</li>
+<li><strong>Whole-shard loss:</strong> <em>Mitigation:</em> replicas serve; lost replica rebuilt from commit log + doc store (index is derived, always rebuildable).</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>What breaks first:</strong> query fan-out. At 800 shards, scattering to all of them per query makes the tail-latency problem (slowest of 800) and the RPC fan-out cost untenable.</li>
+<li><strong>Fix 1 — two-level fan-out:</strong> introduce a tree of coordinators (root → mid-tier → leaf shards) so each node fans out to a manageable degree (~tens), bounding the tail.</li>
+<li><strong>Fix 2 — tiered serving / partial index:</strong> keep a hot tier of high-static-rank docs that answers most queries from a fraction of the shards; only fall through to the full tier when the hot tier is insufficient. Most queries never touch the long tail.</li>
+<li><strong>Fix 3 — query result cache hit-rate:</strong> at 10× QPS the cheapest win is pushing more traffic to the edge/result cache; even 30% hit rate slashes shard load by 30%.</li>
+<li><strong>Storage 10×:</strong> vectors dominate — move from HNSW to IVF-PQ aggressively, or to disk-backed ANN (DiskANN) to keep RAM bounded.</li>
+<li><strong>Ranking 10×:</strong> re-ranking the merged set with a heavier model becomes the cost driver; cap candidate-set size and use a cheap model for the first pass, expensive model only on the top ~100.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"Why fan out to every shard — isn't that wasteful?"</strong> Because the index is document-partitioned, any shard may hold a match; we <em>must</em> ask all of them. The alternative, term-partitioning, removes fan-out but introduces hot-term skew and expensive multi-term postings joins across nodes — a worse trade at this scale. We mitigate fan-out cost with per-shard top-k and a tiered hot index.</li>
+<li><strong>"How do you hit p99 200 ms with an 80-way scatter?"</strong> The 200 ms is governed by tail-shard p99, so I attack the tail directly: hedged backup requests, deadline propagation with partial results, and keeping hot postings in page cache. The merge and re-rank are bounded by capping candidate count.</li>
+<li><strong>"How fresh can a document be?"</strong> Under 10 s on the NRT path via in-memory segments queried alongside on-disk segments — the doc is searchable before its first flush. Deletes apply immediately via a tombstone bitset.</li>
+<li><strong>"How do you rank?"</strong> Multi-stage: cheap per-shard BM25 retrieval → merge → LTR model combining BM25, vector similarity, freshness, and click/engagement features → hydrate. Cheap-then-expensive keeps cost and latency bounded.</li>
+<li><strong>"How do you enforce ACLs without leaking?"</strong> Each shard stores ACL groups in its forward index and filters during retrieval (early), and the hydrate step double-checks against the source-of-truth ACL (late) so a stale index can never serve a doc the user lost access to.</li>
+<li><strong>"How do you evaluate ranking quality?"</strong> Offline nDCG/MRR on judged query sets, plus online interleaving / A-B on click-through and dwell time. Never ship a ranker on offline metrics alone.</li>
+<li><strong>"What if the embedding model changes?"</strong> Re-embed is a full re-index of the vector tier — replay the commit log through new embedders into a shadow index, then flip. The lexical index is untouched.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Phase</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–6 min</td>
+<td>Clarify</td>
+<td>Nail freshness SLA, hybrid-vs-lexical, scale, ACLs, p99 target. State the read-heavy ratio.</td>
+</tr>
+<tr>
+<td>6–10 min</td>
+<td>FR/NFR</td>
+<td>List in/out scope; put up the NFR table; commit to 200 ms p99 + eventual consistency.</td>
+</tr>
+<tr>
+<td>10–16 min</td>
+<td>Estimation</td>
+<td>Corpus → index size → shard count → fan-out RPC math → cache sizing.</td>
+</tr>
+<tr>
+<td>16–22 min</td>
+<td>API</td>
+<td>Search + ingest endpoints; call out ACL context + page tokens.</td>
+</tr>
+<tr>
+<td>22–38 min</td>
+<td>Architecture</td>
+<td>Draw the layered diagram; <strong>walk read path then write path</strong>; emphasize scatter/gather + commit log.</td>
+</tr>
+<tr>
+<td>38–50 min</td>
+<td>Deep dive</td>
+<td>Fan-out tail latency (hedging/deadlines) AND freshness (NRT segments/tombstones/merge).</td>
+</tr>
+<tr>
+<td>50–56 min</td>
+<td>Tradeoffs + failures</td>
+<td>Doc- vs term-partition, hot keys, merge storm, thundering herd — each with a mitigation.</td>
+</tr>
+<tr>
+<td>56–60 min</td>
+<td>Scale 10×</td>
+<td>Two-level fan-out + tiered hot index; what breaks first and why.</td>
+</tr>
+</tbody>
+</table></article></div></body></html>

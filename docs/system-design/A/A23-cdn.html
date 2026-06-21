@@ -1,0 +1,404 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>A23 — Design a CDN (content delivery network)</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="../index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="../index.html">&larr; All system-design questions</a><article class="doc"><h1>A23 — Design a CDN (content delivery network)</h1>
+<p>Design a globally-distributed network of <strong>edge caches</strong> that serves content (static assets, video segments, API responses) to users from a <strong>point of presence (PoP) near them</strong>, dramatically cutting latency and offloading origin servers. It tests whether you understand <strong>edge caching and content distribution as a distinct discipline</strong> — not just "a cache" or "a load balancer," but the interplay of <strong>geo-routing</strong>, a <strong>multi-tier cache hierarchy with origin shielding</strong>, <strong>consistent hashing</strong> across edge nodes, <strong>cache-fill</strong>, <strong>invalidation/TTL</strong>, and the central tension of <strong>hit-ratio vs freshness</strong>. The crux is that the CDN must serve the vast majority of requests <em>without touching the origin</em>, while still being able to push out a fresh version (or purge stale/poisoned content) <strong>fast and globally</strong>.</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>What content are we serving?</strong> Mostly <strong>static immutable</strong> assets (images, JS/CSS, fonts — cache forever), <strong>large media</strong> (video/HLS segments — huge, segment-cacheable), <strong>dynamic but cacheable</strong> API/HTML (short TTL), or all? This decides TTL strategy, the dominant object size, and whether we need range/segment handling.</li>
+<li><strong>Read/write mix &amp; traffic shape:</strong> CDNs are overwhelmingly <strong>read</strong>; "writes" are really <strong>origin publishes + invalidations</strong>. What's the request rate, average object size, and is traffic <strong>long-tail</strong> (many cold objects) or <strong>hot-head</strong> (a few viral objects)? I'll assume read:write ≈ 1000:1, trillions of requests/day globally, mixed object sizes — confirm.</li>
+<li><strong>Latency &amp; coverage target:</strong> what p99 do we promise (e.g. &lt; 50 ms to first byte), and what geographies must we cover? This sizes the <strong>number and placement of PoPs</strong> and the routing strategy.</li>
+<li><strong>Freshness / consistency needs:</strong> how stale may content be — is <strong>eventual</strong> (TTL-based) fine, or are there assets that must update <strong>near-instantly</strong> worldwide (e.g. a security patch, a wrong/illegal asset to purge)? This is the <strong>hit-ratio vs freshness</strong> decision and gates the <strong>invalidation</strong> design.</li>
+<li><strong>Invalidation expectations:</strong> purge a single URL, a path prefix, or by <strong>tag/surrogate-key</strong> (e.g. "everything for product 123")? How fast must a global purge complete — seconds or minutes? Determines the invalidation fan-out mechanism.</li>
+<li><strong>Cacheability control:</strong> who decides TTL — origin <code>Cache-Control</code> headers, CDN config, or both? Are there <strong>personalized / non-cacheable</strong> responses (cookies, auth) we must pass through? Cache-key design hinges on this.</li>
+<li><strong>Origin protection:</strong> how fragile is the origin — must we <strong>shield</strong> it so a cache-miss storm or a viral cold object doesn't melt it? This drives the <strong>mid-tier / origin-shield</strong> layer and request coalescing.</li>
+<li><strong>Security &amp; correctness:</strong> TLS termination at edge, signed URLs / token auth for premium content, <strong>cache-poisoning</strong> defenses, and handling of <code>Vary</code>? Worth scoping early.</li>
+<li><strong>Build vs serve:</strong> are we serving <strong>third-party</strong> customers' origins (a commercial CDN) or our <strong>own</strong> properties? Multi-tenant config, per-tenant purge, and isolation matter for the former.</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> they want to see you treat a CDN as <strong>distinct from a plain cache or LB</strong> — i.e. <strong>geo-routing to the nearest of many PoPs</strong>, a <strong>cache hierarchy with origin shielding</strong>, <strong>consistent hashing</strong> to spread objects across edge nodes without mass remaps when nodes change, <strong>cache-fill with request coalescing</strong> to protect the origin, and an explicit <strong>TTL + invalidation</strong> story. The standout move is to lead with <strong>hit-ratio as the primary objective</strong> (every miss is latency + origin load + cost), quantify it, and frame every design choice — hierarchy, coalescing, consistent hashing, TTL — as serving hit-ratio <em>without</em> sacrificing the ability to push fresh content globally on demand.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In-scope</strong>
+- <strong>Edge PoPs:</strong> serve content from a cache at the <strong>nearest PoP</strong>; terminate TLS at the edge.
+- <strong>Geo-routing:</strong> direct each user to a healthy nearby PoP via <strong>anycast</strong> and/or <strong>DNS-based</strong> geo steering.
+- <strong>Cache hierarchy + origin shielding:</strong> edge → <strong>regional mid-tier / origin shield</strong> → origin, so misses are absorbed before hitting the origin.
+- <strong>Cache-fill:</strong> on a miss, fetch from the next tier / origin, store, and serve — with <strong>request coalescing</strong> so concurrent misses for the same object cause <strong>one</strong> upstream fetch.
+- <strong>TTL / freshness:</strong> honor <code>Cache-Control</code>/<code>Expires</code>, support <strong>stale-while-revalidate</strong> and <strong>stale-if-error</strong>, and <strong>revalidation</strong> (ETag / If-None-Match).
+- <strong>Invalidation / purge:</strong> purge by <strong>URL</strong>, <strong>path prefix</strong>, or <strong>surrogate-key/tag</strong>, propagated globally within seconds.
+- <strong>Consistent hashing:</strong> distribute objects across the cache nodes within a PoP so adding/removing a node remaps only a small fraction of keys.
+- <strong>Range / segment support</strong> for large media (byte ranges, video segments).</p>
+<p><strong>Out-of-scope (defer)</strong>
+- Building the <strong>origin application</strong> itself (we cache in front of it).
+- A full <strong>DDoS/WAF</strong> product (mention edge filtering as an extension).
+- <strong>Edge compute</strong> / serverless-at-edge (acknowledge as a natural evolution).
+- <strong>Video transcoding/packaging</strong> (separate system; the CDN caches its output).</p>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>Trillions of requests/day; petabytes of egress; tens-to-hundreds of PoPs; objects from KBs (assets) to GBs (media).</td>
+</tr>
+<tr>
+<td>p99 latency</td>
+<td>&lt; 50 ms TTFB for an edge <strong>hit</strong> (user→nearest PoP); a miss adds the fill round-trip (mitigated by shield + coalescing).</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td>99.99%+ globally; a PoP/node failure must <strong>fail over</strong> (anycast reroute) without user-visible outage.</td>
+</tr>
+<tr>
+<td>Hit ratio</td>
+<td><strong>Primary objective:</strong> 90%+ edge hit ratio (95%+ with mid-tier) — directly drives latency, origin load, and cost.</td>
+</tr>
+<tr>
+<td>Consistency / freshness</td>
+<td><strong>Eventual</strong> by default (TTL); <strong>fast global purge</strong> (seconds) for correctness-critical updates. Hit-ratio vs freshness traded explicitly.</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>Cache is <strong>non-authoritative</strong> (loss = re-fill from origin, tolerable); the <strong>origin</strong> is the source of truth. Config/purge state is durable.</td>
+</tr>
+<tr>
+<td>Origin protection</td>
+<td>Origin must survive cache-miss storms / cold-object virality: shielding + coalescing cap concurrent origin fetches per object at ~1.</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>TLS at edge; signed URLs/tokens for premium content; cache-poisoning defenses; correct <code>Vary</code>/cache-key handling.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>Request volume
+  Say 10T requests/day -&gt; 10e12 / 86400 ~ 116M requests/s globally (avg);
+    peak 2-3x. Spread across ~100 PoPs -&gt; ~1-3M req/s/PoP -&gt; many edge nodes/PoP.
+
+Why hit ratio dominates everything
+  At 90% hit ratio, 10% = ~11.6M req/s reach the NEXT tier.
+  At 95% (add mid-tier), only ~5.8M/s do. Each +1% hit ratio removes ~1.16M
+    req/s of origin/transit load AND egress cost. -&gt; hit ratio is THE lever.
+
+Egress bandwidth
+  Avg object ~100 KB (blend of small assets + segmented media):
+    116M req/s * 100 KB ~ 11.6 TB/s egress at the edge globally. (Media-heavy
+    blends push this far higher.) -&gt; PoPs need huge NIC/peering capacity.
+
+Origin/transit bandwidth (what shielding saves)
+  Without shield, 10% miss * 11.6 TB/s = ~1.16 TB/s to origins.
+  With mid-tier raising effective hit ratio to 95%+: ~0.58 TB/s -&gt; halved.
+  Coalescing further caps it: N concurrent misses for one hot-cold object -&gt; 1 fetch.
+
+Edge cache capacity (per node) and the long tail
+  Working set is huge; we can't cache everything. Suppose a PoP holds the hot
+    &quot;head&quot; that yields 90% of hits in, say, 50 TB across its nodes.
+  Per node: 50 TB / (say 20 nodes) = 2.5 TB SSD/node -&gt; SSD tier + RAM tier
+    (hot-hot objects in RAM). Eviction: LRU/LFU; admission control (TinyLFU) to
+    stop one-hit-wonders from evicting valuable objects.
+
+Consistent-hashing remap on node change
+  K objects across N nodes; lose 1 node -&gt; only ~K/N keys remap (the failed
+    node's share) instead of nearly all keys (naive hash mod N). With virtual
+    nodes, load redistributes evenly to the survivors.
+
+Invalidation fan-out
+  A purge must reach ~100 PoPs * ~20 nodes = ~2000 cache processes.
+  Via a pub/sub tree: log(N) hops, completes in ~hundreds of ms to a few sec.
+  By surrogate-key, one purge may invalidate millions of URLs cheaply (tag map).
+</code></pre>
+<h2>5) API design</h2>
+<pre><code># End-user request (HTTP/S to the nearest PoP via anycast/DNS)
+GET /&lt;path&gt;            Host: customer.example.com
+   Headers honored: Range, If-None-Match (ETag), Accept-Encoding, Cookie/Auth (Vary)
+   -&gt; 200 (HIT, X-Cache: HIT) | 200/206 after fill (X-Cache: MISS) | 304 (revalidated)
+   Response sets: Cache-Control / Age / ETag / Surrogate-Key (internal)
+
+# Origin contract (origin -&gt; CDN: how to cache)
+   Cache-Control: public, max-age=600, stale-while-revalidate=60, stale-if-error=86400
+   Surrogate-Key: &quot;product-123 catalog&quot;      # tags for tag-based purge
+   ETag / Last-Modified                       # for conditional revalidation
+
+# Cache-fill (edge -&gt; mid-tier -&gt; origin), with coalescing
+fill(object_key) -&gt; single upstream fetch per key per node even under N concurrent misses
+
+# Control plane (customer / operator)
+PUT  /config/{tenant}            { domains, cache_rules, ttls, geo_rules, signed_url_key }
+POST /purge/url        { tenant, url }                     # single object
+POST /purge/prefix     { tenant, prefix: &quot;/images/*&quot; }     # path prefix
+POST /purge/tag        { tenant, surrogate_key: &quot;product-123&quot; }  # tag-based, fan-out
+POST /preload          { tenant, urls[] }                  # warm the edge before a launch
+
+# Signed/token access for premium content
+GET /&lt;path&gt;?token=&lt;signed&gt;     # edge validates HMAC/expiry before serving
+</code></pre>
+<h2>6) Architecture — request &amp; data flow</h2>
+<p><strong>(a) ASCII layered flow</strong></p>
+<pre><code>                 Users worldwide (browsers, apps, players)
+                          |
+                          v
+            [ Geo-routing: Anycast BGP + GeoDNS ]   send user to NEAREST healthy PoP;
+                          |                          health-checked, withdraw on failure
+        ==================|=========================================================
+        |                 v               EDGE PoP (one of ~100, near the user)     |
+        |        [ Edge LB / TLS term ]   terminates TLS, picks an edge cache node  |
+        |                 |                                                          |
+        |                 v   key = hash(cache-key); CONSISTENT HASH ring + vnodes   |
+        |        [ Edge cache nodes ]  RAM (hot-hot) -&gt; SSD (hot) tiers              |
+        |          |  HIT  -&gt; serve immediately (X-Cache: HIT), sub-50ms            |
+        |          |  MISS -&gt; coalesce concurrent misses for same key (single-flight)|
+        |          |          then fetch from the next tier ------------------+      |
+        ==================|===============================================|====|======
+                          | (miss only)                                  |    |
+                          v                                              |    | (purge feed
+            [ Regional mid-tier / ORIGIN SHIELD ]  one logical cache    |    |  invalidates
+              in front of the origin for a region; absorbs edge misses; |    |  here too)
+              its own coalescing -&gt; at most ~1 origin fetch per object  |    |
+                          |  shield MISS                                 |    |
+                          v                                              |    |
+                  [ Origin servers ]  source of truth (app / object store / S3-like)
+                          |                                              ^    ^
+                          v                                              |    |
+                  [ Origin / object storage ]  &lt;--- publish new versions |    |
+                                                                          |    |
+        Control plane (out of band):                                     |    |
+          [ Config + Purge service ] --pub/sub tree--&gt; all PoPs/nodes ----+    |
+            (durable config, TTL rules, geo rules, surrogate-key -&gt; URL map)    |
+          purge by URL / prefix / TAG fans out in log(N) hops -------------------+
+
+   Read (hit):  user -&gt; nearest PoP -&gt; edge node (consistent-hash) -&gt; HIT -&gt; serve.
+   Read (miss): edge MISS -&gt; coalesce -&gt; shield -&gt; (shield MISS) -&gt; origin -&gt; fill
+                both shield &amp; edge, serve; future requests HIT.
+   Write/publish: origin publishes new version; freshness via TTL expiry OR an
+                explicit PURGE (URL/prefix/tag) propagated to every PoP in seconds.
+</code></pre>
+<p><strong>Read path — the common case (a hit):</strong> a user's request is steered by <strong>anycast/GeoDNS</strong> to the <strong>nearest healthy PoP</strong>. The PoP's <strong>edge LB terminates TLS</strong> and routes to a specific <strong>edge cache node</strong> chosen by <strong>consistent hashing</strong> of the cache-key (so each object lives on a deterministic node and the same object isn't duplicated across all nodes, wasting capacity). If the node has the object (a <strong>HIT</strong>), it serves it in <strong>sub-50 ms</strong> with <code>X-Cache: HIT</code> — no upstream traffic at all. This is ~90% of requests and is the entire point of the system.</p>
+<p><strong>Read path — a miss (cache-fill with coalescing and shielding):</strong> on a <strong>MISS</strong>, the edge node first <strong>coalesces</strong> — if 10,000 users request the same not-yet-cached object simultaneously, <strong>single-flight</strong> ensures only <strong>one</strong> upstream fetch happens and the rest wait for it (this is what stops a viral cold object from stampeding the origin). The fetch goes to the <strong>regional mid-tier / origin shield</strong>, <em>not</em> directly to the origin: the shield is a smaller set of caches that <strong>all edges in a region funnel through</strong>, so even if many PoPs miss the same object, the origin sees roughly <strong>one</strong> request. The shield (also coalescing) fetches from the <strong>origin</strong> only on its own miss, then the object is stored at the shield <strong>and</strong> the edge and served. Subsequent requests are hits. The hierarchy + coalescing is precisely what turns a 10% edge-miss rate into a tiny trickle of origin traffic.</p>
+<p><strong>Write / publish / freshness path:</strong> there is no "write" in the user sense — content changes when the <strong>origin publishes a new version</strong>. Freshness is reconciled two ways: (1) <strong>TTL</strong> — objects carry <code>max-age</code>; when expired, the edge <strong>revalidates</strong> (conditional <code>If-None-Match</code>; a <code>304</code> refreshes the TTL cheaply) — eventual consistency, great for hit-ratio; and (2) <strong>explicit purge</strong> — for correctness-critical or fast updates, the <strong>control plane</strong> fans a <strong>purge</strong> (by URL, prefix, or <strong>surrogate-key tag</strong>) out through a <strong>pub/sub tree</strong> to every PoP/node within seconds, evicting the stale object so the next request re-fills the new version. <strong>stale-while-revalidate</strong> lets the edge serve the old copy instantly while refreshing in the background (latency win), and <strong>stale-if-error</strong> serves stale content if the origin is down (availability win).</p>
+<p><strong>(b) Mermaid flowchart</strong></p>
+<div class="mermaid">
+flowchart TD
+  user[Users worldwide] --> geo[Geo-routing: Anycast BGP + GeoDNS to nearest healthy PoP]
+  geo --> elb[Edge LB / TLS termination]
+  elb -->|consistent-hash cache-key + vnodes| edge[Edge cache node: RAM then SSD tiers]
+  edge -->|HIT ~90%| serve[Serve sub-50ms, X-Cache HIT]
+  edge -->|MISS: single-flight coalesce| shield[Regional mid-tier / Origin Shield]
+  shield -->|shield HIT| fill1[Fill edge + serve]
+  shield -->|shield MISS: coalesce| origin[Origin servers - source of truth]
+  origin --> store[(Origin / object storage)]
+  origin -->|response| fill2[Fill shield + edge, serve]
+  store -. publish new version .-> origin
+  cfg[Config + Purge service - durable] -. pub/sub tree, log N hops .-> edge
+  cfg -. purge by URL / prefix / surrogate-key .-> shield
+  edge -. revalidate If-None-Match -> 304 .-> shield
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<ul>
+<li><strong>Cached object — keyed blob in a tiered cache (RAM → SSD), per edge node.</strong> Cache-key = function of <code>(host, path, normalized query, Vary headers like Accept-Encoding)</code>; value = <code>{ bytes, content-type, ETag, fetched_at, ttl, surrogate_keys[] }</code>. First-principles: the workload is <strong>read-mostly, latency-critical, and the dataset far exceeds RAM</strong>, so we use a <strong>two-tier</strong> store — the hottest objects in <strong>RAM</strong> (microsecond serve) and the broader hot set on <strong>SSD</strong> (fast, high-capacity) — with the origin as the durable backstop. The cache is <strong>non-authoritative</strong>: losing it just forces re-fills, so we optimize for speed and hit-ratio, not durability.</li>
+<li><strong>Placement — consistent-hash ring with virtual nodes (within a PoP).</strong> First-principles: we must (a) put each object on a <strong>deterministic node</strong> so requests find it and we don't waste capacity caching the same object on every node, and (b) <strong>avoid mass remaps</strong> when a node is added/removed. Plain <code>hash(key) mod N</code> remaps nearly <strong>all</strong> keys on any change (cache-wiping). <strong>Consistent hashing</strong> remaps only ~<code>1/N</code> of keys (the leaving node's share), and <strong>virtual nodes</strong> spread that share evenly across survivors so no single node is overwhelmed by the redistribution.</li>
+<li><strong>Eviction &amp; admission — LRU/LFU + admission control (TinyLFU-style).</strong> First-principles: with a long-tail workload, naive LRU lets <strong>one-hit-wonders</strong> evict genuinely hot objects. An <strong>admission filter</strong> only caches an object if it's likely to be reused, protecting hit-ratio; size-aware eviction prevents a few huge media objects from flushing many small valuable ones.</li>
+<li><strong>TTL / freshness metadata — per object.</strong> <code>max-age</code>, <code>stale-while-revalidate</code>, <code>stale-if-error</code>, <code>ETag</code>/<code>Last-Modified</code> drive revalidation. First-principles: freshness is a <strong>per-object policy</strong> set by the origin (it knows what's immutable vs volatile), so we honor <code>Cache-Control</code> and only override via config where needed.</li>
+<li><strong>Surrogate-key → URL/tag map (control plane).</strong> First-principles: purging by URL doesn't scale to "invalidate everything for product 123" (which may be thousands of URLs). A <strong>tag (surrogate-key)</strong> attached at fill time lets one purge invalidate an entire logical group cheaply; the map lives in the <strong>durable control plane</strong> and the tags travel with each cached object so edges can evict by tag locally.</li>
+<li><strong>Config &amp; purge log — durable, replicated, globally distributed.</strong> First-principles: config (cache rules, TTLs, geo rules, signed-URL keys) and purges must be <strong>durable and globally agreed</strong> (the opposite profile from the ephemeral cache), so they live in a strongly-consistent store and propagate via a <strong>pub/sub fan-out tree</strong> to every PoP.</li>
+<li><strong>Why not a database for cached content?</strong> A DB gives durability and queries we don't need and adds latency we can't afford; the access pattern is <strong>GET by key, serve bytes, evict under pressure</strong> — exactly an in-process tiered KV cache. The authoritative copy already lives at the <strong>origin/object store</strong>, so the CDN tier optimizes purely for <strong>fast reads + high hit-ratio</strong>.</li>
+</ul>
+<h2>8) Deep dive</h2>
+<p><strong>Deep dive A — geo-routing, the cache hierarchy, and origin shielding (getting requests to the right place and protecting the origin).</strong></p>
+<ul>
+<li><strong>Geo-routing — anycast vs DNS:</strong> with <strong>anycast</strong>, every PoP advertises the <em>same</em> IP via BGP and the internet routes the user to the <strong>topologically nearest</strong> PoP automatically; failover is "withdraw the route" (fast, no client change), but you have limited control over <em>which</em> PoP and can suffer mid-session rerouting. With <strong>GeoDNS</strong>, the DNS resolver returns a PoP IP based on the resolver's geo/latency tables — more control and per-PoP health steering, but bounded by <strong>DNS TTL</strong> (stale during failover) and resolver-location inaccuracy. Production CDNs use <strong>both</strong>: anycast for coarse, instant proximity + DNS/latency steering for finer control and load balancing. I'd state the tradeoff and pick the hybrid.</li>
+<li><strong>Cache hierarchy:</strong> <strong>edge</strong> (many PoPs, close to users, smaller per-node capacity) → <strong>regional mid-tier / origin shield</strong> (fewer, larger, funnels a whole region) → <strong>origin</strong>. Why a mid-tier? Edges are numerous and each has a limited working set, so the <strong>same object missing at many edges</strong> would hit the origin many times. Funneling all of a region's edges through <strong>one logical shield</strong> means the <strong>origin sees ~one request per object per region</strong>, and the shield's larger cache also raises the effective hit-ratio for long-tail objects an individual edge couldn't hold.</li>
+<li><strong>Origin shielding + request coalescing (the origin's survival):</strong> the headline origin threat is a <strong>cache-miss storm</strong> — a popular object expires or a viral cold object appears, and millions of requests miss simultaneously. <strong>Single-flight coalescing</strong> at each node ensures only <strong>one</strong> upstream fetch per object while the rest <strong>wait</strong> on it; combined with the shield, the origin sees roughly <strong>one</strong> fetch globally per object even under a flash crowd. This is the difference between a CDN that protects the origin and one that amplifies load onto it.</li>
+<li><strong>stale-while-revalidate / stale-if-error:</strong> serve the <strong>stale</strong> copy instantly while refreshing in the background (no user waits on the fill), and serve <strong>stale on origin error</strong> (the CDN keeps the site up even when the origin is down). Both trade a little freshness for big latency/availability wins — explicitly.</li>
+</ul>
+<p><strong>Deep dive B — invalidation, TTL, and the hit-ratio vs freshness tradeoff (the heart of caching correctness).</strong></p>
+<ul>
+<li><strong>The fundamental tension:</strong> <strong>longer TTLs → higher hit-ratio</strong> (fewer origin fetches, lower latency/cost) but <strong>staler content</strong>; <strong>shorter TTLs → fresher</strong> but more misses and origin load. There's no free lunch, so we <strong>separate content by volatility</strong>: immutable, fingerprinted assets (<code>app.a1b2c3.js</code>) get <strong>near-infinite TTL</strong> (change = new URL, so cache-busting is automatic and hit-ratio is maximal), while volatile content gets <strong>short TTL + revalidation</strong>.</li>
+<li><strong>Invalidation strategies (in order of power/cost):</strong></li>
+<li><strong>TTL expiry (passive):</strong> cheapest, no fan-out, but you wait out the TTL — fine for most content.</li>
+<li><strong>Revalidation (conditional GET):</strong> on expiry, send <code>If-None-Match</code>; a <code>304</code> refreshes TTL <strong>without re-transferring bytes</strong> — cheap freshness for large objects that rarely change.</li>
+<li><strong>Explicit purge (active):</strong> for "this must be gone <strong>now</strong> everywhere" (wrong price, legal takedown, security fix). Purge by <strong>URL</strong> (one object), <strong>prefix</strong> (<code>/images/*</code>), or <strong>surrogate-key/tag</strong> (one purge → all URLs tagged <code>product-123</code>, even millions). Propagated via a <strong>pub/sub tree</strong> to all PoPs/nodes in <strong>log(N) hops</strong> → seconds globally.</li>
+<li><strong>Versioning / cache-busting:</strong> change the URL on publish so old and new coexist and clients fetch the new path — zero purge needed, perfect for static assets.</li>
+<li><strong>Why tag-based purge matters at scale:</strong> real invalidations are <strong>logical</strong> ("everything about product 123"), not per-URL. Attaching <strong>surrogate-keys</strong> at fill time turns an unbounded URL enumeration into a <strong>single tag purge</strong>, which is the only practical way to invalidate large related sets quickly.</li>
+<li><strong>Cache-key &amp; <code>Vary</code> correctness:</strong> the cache-key must include everything that changes the response (encoding, device, auth where applicable) or you serve the <strong>wrong variant</strong>; mishandling <code>Vary</code>/cookies is a top cause of cache <strong>poisoning</strong> and incorrect responses — so we normalize the key carefully and refuse to cache truly personalized responses.</li>
+</ul>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Choice &amp; why</th>
+<th>Tradeoff accepted</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Consistency model</td>
+<td><strong>Eventual</strong> (TTL) by default; fast purge for correctness-critical</td>
+<td>Content can be briefly stale until TTL expiry / purge lands</td>
+</tr>
+<tr>
+<td>Hit-ratio vs freshness</td>
+<td>Long TTL for immutable (versioned URLs), short TTL + revalidate for volatile</td>
+<td>Tuning per content class; some staleness window</td>
+</tr>
+<tr>
+<td>Geo-routing</td>
+<td><strong>Hybrid anycast + GeoDNS</strong></td>
+<td>Anycast mid-session reroute risk; DNS TTL staleness on failover</td>
+</tr>
+<tr>
+<td>Hierarchy</td>
+<td>Edge → <strong>mid-tier/shield</strong> → origin</td>
+<td>Extra hop on a full miss; mid-tier infra cost</td>
+</tr>
+<tr>
+<td>Origin protection</td>
+<td><strong>Coalescing (single-flight) + shield</strong></td>
+<td>Concurrent misses wait on one fetch (slight latency) to spare the origin</td>
+</tr>
+<tr>
+<td>Placement</td>
+<td><strong>Consistent hashing + vnodes</strong></td>
+<td>Slightly more complex than mod-N; needed to avoid cache-wiping remaps</td>
+</tr>
+<tr>
+<td>Eviction</td>
+<td>LRU/LFU + <strong>admission control</strong></td>
+<td>Admission filter complexity; protects hit-ratio from one-hit-wonders</td>
+</tr>
+<tr>
+<td>Invalidation</td>
+<td>TTL + revalidation + <strong>tag-based purge</strong></td>
+<td>Purge fan-out infra; tags must be set correctly at fill</td>
+</tr>
+<tr>
+<td>Stale serving</td>
+<td><strong>stale-while-revalidate / stale-if-error</strong></td>
+<td>Serves slightly stale bytes to win latency/availability</td>
+</tr>
+<tr>
+<td>CAP</td>
+<td><strong>AP</strong> for serving (always serve, possibly stale); CP for config/purge log</td>
+<td>During origin/partition trouble, prefer serving stale over erroring</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Cache-miss storm / thundering herd on a hot object (TTL expiry or viral cold object).</strong> <em>Mitigation:</em> <strong>request coalescing (single-flight)</strong> per node + <strong>origin shielding</strong> so the origin sees ~one fetch; <strong>stale-while-revalidate</strong> so users aren't blocked during the refill; small TTL <strong>jitter</strong> so many objects don't expire in lockstep.</li>
+<li><strong>Hot object / hot node imbalance (one viral asset overwhelms its consistent-hash node).</strong> <em>Mitigation:</em> <strong>replicate</strong> very-hot objects across multiple nodes (or to RAM on all nodes) rather than pinning to one; <strong>virtual nodes</strong> spread load; a hot-object detector can promote and fan out the top-K objects.</li>
+<li><strong>PoP or edge-node failure.</strong> <em>Mitigation:</em> <strong>anycast withdraws</strong> the failed PoP's route (users reroute to the next-nearest automatically); within a PoP, the <strong>consistent-hash ring</strong> remaps the failed node's ~<code>1/N</code> share to survivors (cold for a moment, then re-filled) instead of wiping the whole cache.</li>
+<li><strong>Origin outage.</strong> <em>Mitigation:</em> <strong>stale-if-error</strong> serves cached (even expired) content so the site stays up; the shield absorbs retries; alarms on origin health.</li>
+<li><strong>Mass purge / cache-wipe (a bad global purge or config push flushes everything → origin meltdown).</strong> <em>Mitigation:</em> <strong>staged/canary</strong> purges and config rollouts, rate-limited purge fan-out, and re-warming from the shield (not the origin) so the origin isn't hit by the full long tail at once.</li>
+<li><strong>Cache poisoning / wrong-variant serving (<code>Vary</code>/cookie/cache-key mistakes).</strong> <em>Mitigation:</em> strict <strong>cache-key normalization</strong>, correct <code>Vary</code> handling, never cache responses keyed on un-normalized untrusted headers, and don't cache personalized/auth responses.</li>
+<li><strong>Consistent-hash skew / churn.</strong> <em>Mitigation:</em> <strong>virtual nodes</strong> for even distribution; treat transient node flaps with a <strong>grace period</strong> so a brief blip doesn't trigger churn-storms of remaps and re-fills.</li>
+<li><strong>Cold-start after a flush / new PoP.</strong> <em>Mitigation:</em> <strong>preload/warm</strong> critical objects before a launch; fill new edges from the <strong>mid-tier</strong> rather than the origin.</li>
+<li><strong>Egress/peering saturation at a PoP under a flash crowd.</strong> <em>Mitigation:</em> capacity headroom + per-PoP load steering (shift some users to a neighboring PoP via DNS); tiered serving (RAM for the very hottest to cut SSD/NIC pressure).</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>First to break: origin/transit bandwidth and the long tail</strong>, because edge capacity can't grow as fast as the catalog. Evolve by <strong>adding mid-tier levels</strong> (a deeper hierarchy: edge → metro → regional shield → origin) so each level absorbs more of the long tail and the origin's effective request rate stays ~flat — the hierarchy is the primary scaling lever.</li>
+<li><strong>More PoPs / finer geo:</strong> push PoPs closer (metro-level, ISP-embedded caches) and improve <strong>latency-based routing</strong> (RUM-driven steering) so users hit the truly fastest PoP, not just the geographically nearest.</li>
+<li><strong>Hotter content / live events (flash crowds):</strong> strengthen <strong>hot-object detection + replication</strong> (fan a viral object to RAM on all nodes), and pre-position content via <strong>predictive preloading</strong> ahead of known launches/premieres.</li>
+<li><strong>Tighter freshness at scale:</strong> make <strong>tag-based purge</strong> hierarchical and faster (regional purge brokers, dedup of overlapping purges) so global invalidation stays in the seconds range even as objects and tags grow.</li>
+<li><strong>Edge compute:</strong> move beyond static caching to <strong>compute at the edge</strong> (request rewriting, A/B, personalization, auth, even API assembly) so more dynamic responses become cacheable/served at the edge — the natural CDN evolution.</li>
+<li><strong>Cost/efficiency:</strong> size-aware admission and <strong>tiered storage</strong> (RAM/SSD/HDD) tuned per PoP; offload more to <strong>peering</strong> and ISP caches to cut transit cost as egress 10×'s.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"How is this different from just putting a cache in front of the origin?"</strong> A CDN adds <strong>geo-distribution</strong> (many PoPs + geo-routing to the nearest), a <strong>cache hierarchy with origin shielding</strong>, <strong>consistent hashing</strong> across edge nodes, <strong>global invalidation/purge</strong>, and explicit <strong>TTL/freshness</strong> policy — it's about serving the <em>world</em> close to the user and protecting the origin at planetary scale, not a single local cache.</li>
+<li><strong>"What's your hit ratio target and why does it matter so much?"</strong> 90%+ at the edge, 95%+ with the mid-tier. Every 1% of misses is ~1M+ req/s of origin/transit load and egress cost at our scale, plus a latency penalty — so <strong>hit-ratio is the primary objective</strong> and every design choice serves it.</li>
+<li><strong>"How do you protect the origin from a viral cold object or a TTL stampede?"</strong> <strong>Single-flight coalescing</strong> (one upstream fetch per object while others wait) + <strong>origin shielding</strong> (a region's edges funnel through one shield, so the origin sees ~one fetch) + <strong>stale-while-revalidate</strong> and <strong>TTL jitter</strong> so refreshes don't synchronize.</li>
+<li><strong>"Why consistent hashing inside a PoP?"</strong> So each object lives on a <strong>deterministic node</strong> (requests find it; we don't waste capacity duplicating it everywhere) <strong>and</strong> adding/removing a node remaps only ~<code>1/N</code> of keys instead of wiping the whole cache like <code>mod N</code> would. <strong>Virtual nodes</strong> keep the redistribution even.</li>
+<li><strong>"How do you invalidate content globally and how fast?"</strong> TTL for the common case; <strong>revalidation</strong> (<code>If-None-Match</code> → <code>304</code>) for cheap freshness; and <strong>explicit purge</strong> by URL/prefix/<strong>surrogate-key tag</strong> fanned out via a pub/sub tree to all PoPs in <strong>log(N) hops → seconds</strong>. Tags let one purge kill millions of related URLs.</li>
+<li><strong>"Anycast or DNS for routing?"</strong> Both. <strong>Anycast</strong> for instant topological proximity and route-withdrawal failover; <strong>GeoDNS/latency steering</strong> for finer control and load balancing. Anycast risks mid-session reroutes; DNS is bounded by TTL during failover — the hybrid covers each other's gaps.</li>
+<li><strong>"How do you handle the long tail you can't fully cache?"</strong> Tier the cache (RAM→SSD), use <strong>admission control</strong> so one-hit-wonders don't evict hot objects, and rely on the <strong>mid-tier</strong> to hold a broader hot set; truly cold objects fill from the shield/origin and that's acceptable since they're rare per object.</li>
+<li><strong>"Hit-ratio vs freshness — how do you decide TTLs?"</strong> Separate by <strong>volatility</strong>: immutable, <strong>fingerprinted</strong> assets get near-infinite TTL (new content = new URL), volatile content gets short TTL + revalidation, and correctness-critical changes use <strong>explicit purge</strong>. That maximizes hit-ratio while keeping the ability to be fresh on demand.</li>
+<li><strong>"What happens when the origin is down?"</strong> <strong>stale-if-error</strong> keeps serving cached (even expired) content so users see no outage; the shield absorbs retries; we alarm and avoid hammering the origin.</li>
+<li><strong>"How do you avoid serving the wrong cached variant?"</strong> Careful <strong>cache-key normalization</strong> + correct <strong><code>Vary</code></strong> handling (encoding/device/auth), and never caching personalized/auth responses — this also prevents <strong>cache poisoning</strong>.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Phase</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–6 min</td>
+<td>Clarify</td>
+<td>Content type/size, read:write shape, latency+coverage, <strong>freshness/invalidation needs</strong>, origin fragility, multi-tenant?</td>
+</tr>
+<tr>
+<td>6–9 min</td>
+<td>FR/NFR</td>
+<td>Lock edge-hit &lt; 50 ms, <strong>90%+ hit ratio as primary goal</strong>, eventual + fast purge, origin protection</td>
+</tr>
+<tr>
+<td>9–15 min</td>
+<td>Estimation</td>
+<td>Requests/s/PoP, <strong>why hit-ratio dominates</strong> (origin load + cost), egress BW, edge capacity + long tail, purge fan-out</td>
+</tr>
+<tr>
+<td>15–20 min</td>
+<td>API + high-level arch</td>
+<td>GET + <code>Cache-Control</code>/<code>Surrogate-Key</code>, purge by URL/prefix/tag; draw both diagrams; edge→shield→origin</td>
+</tr>
+<tr>
+<td>20–25 min</td>
+<td>Walk read (hit/miss) + publish paths</td>
+<td>Geo-route → edge HIT; MISS → coalesce → shield → origin → fill; publish → TTL/revalidate or purge</td>
+</tr>
+<tr>
+<td>25–40 min</td>
+<td>Deep dive</td>
+<td>(A) geo-routing, hierarchy, <strong>origin shielding + coalescing</strong>; (B) <strong>TTL + invalidation + hit-ratio-vs-freshness</strong></td>
+</tr>
+<tr>
+<td>40–48 min</td>
+<td>Tradeoffs + failures</td>
+<td>Eventual vs purge, anycast vs DNS, miss-storm, hot object/node, cache poisoning, mass-purge meltdown</td>
+</tr>
+<tr>
+<td>48–55 min</td>
+<td>Scale 10x</td>
+<td>Deeper hierarchy for the long tail, more/closer PoPs, hot-object replication, hierarchical purge, edge compute</td>
+</tr>
+<tr>
+<td>55–60 min</td>
+<td>Probes</td>
+<td>CDN-vs-cache distinction, hit-ratio justification, origin protection, consistent hashing, global purge speed</td>
+</tr>
+</tbody>
+</table></article></div></body></html>

@@ -1,0 +1,383 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>B03 — Design a code search system (à la Google Code Search)</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="../index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="../index.html">&larr; All system-design questions</a><article class="doc"><h1>B03 — Design a code search system (à la Google Code Search)</h1>
+<p>This sits exactly at the Search × Developer-Experience intersection — the role I am interviewing for. It tests whether I can build search over <em>source code</em> specifically: symbol-aware indexing, regex and substring matching via a trigram index, incremental re-index on every commit, ranking tuned for developers, and per-repo access control — all at cross-repo scale with low query latency. Google asks it because internal code search is one of the highest-leverage developer tools that exists, and a Staff engineer is expected to understand why code search is <em>not</em> just web search with a different corpus.</p>
+<h2>Lead with this — your résumé hook</h2>
+<p>I bring both halves of this problem: I have run <strong>search at scale</strong> (1B+ doc hybrid index, p99 ~200 ms) <em>and</em> I have built developer-facing tooling that engineers use every day. Code search is precisely where those two strengths meet — it demands the indexing-and-fan-out machinery of a search system, but with the developer-specific twists of symbol resolution, regex/substring matching, and instant re-index on commit. I will design it the way a tools engineer who has lived with both sides would: optimize for the developer's actual workflow (jump-to-definition, find-all-callers, regex sweeps), not just keyword recall.</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>Query modes:</strong> Do we need literal substring, <strong>regex</strong>, <em>and</em> semantic symbol search (go-to-definition, find-references)? These need fundamentally different indexes (trigram vs. symbol graph) — this is the central fork.</li>
+<li><strong>Corpus scale:</strong> How many repos, total lines of code, and number of files? Monorepo (one giant tree) or polyrepo (millions of separate repos)? This drives sharding strategy.</li>
+<li><strong>Languages:</strong> A fixed set we can write proper parsers for, or arbitrary/any language (where we fall back to lexical-only)? Symbol search quality depends on per-language parsing.</li>
+<li><strong>Freshness:</strong> Must a just-pushed commit be searchable in seconds (this is table stakes for code search), minutes, or is hourly acceptable? Developers expect near-instant.</li>
+<li><strong>Read/write mix:</strong> Query QPS vs. commit/push rate? Code search is read-heavy but the write path (re-index on commit) is the hard part.</li>
+<li><strong>Access control:</strong> Is all code visible to all engineers (classic Google internal model), or strict per-repo/per-team ACLs where results must be filtered per user? ACL filtering changes the serving path significantly.</li>
+<li><strong>Latency target:</strong> p99 for interactive search? I will assume <strong>&lt; 100 ms</strong> for substring/symbol and a looser budget for full-corpus regex, since developers type queries live.</li>
+<li><strong>Result richness:</strong> Just file+line matches, or full context (surrounding lines, syntax highlighting, blame, cross-references)?</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> They want to see that you know <strong>code is a different corpus</strong>. The give-away that you "get it": you bring up the <strong>trigram index for regex</strong> (you cannot run a regex against a billion files; you use trigrams to <em>narrow</em> the candidate set, then verify), and you separate the <strong>symbol graph</strong> (for semantic queries) from the <strong>content index</strong> (for text/regex). Mentioning incremental re-index-on-commit and ACL-on-code unprompted is the L6 signal — those are the two things that make code search operationally hard.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In scope:</strong>
+- Literal/substring search across all source files (file + line + context).
+- <strong>Regex search</strong> over the corpus (anchored by a trigram index).
+- <strong>Symbol search:</strong> go-to-definition, find-all-references/callers, by-symbol-name.
+- Incremental re-index triggered on every commit/push (near-real-time).
+- Filtering by repo, path, language, file type.
+- Ranking tuned for code (exact symbol match &gt; substring; definitions &gt; usages).
+- Per-repo / per-user ACL filtering of results.
+- Syntax-highlighted result snippets with surrounding context.</p>
+<p><strong>Out of scope (defer):</strong>
+- The version-control system itself (we consume commits/diffs from it).
+- Code review, CI, and build (separate dev-infra services).
+- AI/semantic "natural-language → code" search (a separate prompt; could bolt a vector tier on later).
+- Full IDE integration UI.
+- Authoring/refactoring tools.</p>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>~2B lines of code, ~100M files, 10K+ repos (or one monorepo). ~5K query QPS, ~1K commits/min.</td>
+</tr>
+<tr>
+<td>p99 latency</td>
+<td><strong>&lt; 100 ms</strong> for substring/symbol; <strong>&lt; 1–2 s</strong> for full-corpus regex (acceptable since rarer and heavier).</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td>99.95% for query path. Indexing can lag briefly; queue absorbs.</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td><strong>Eventual</strong> — a pushed commit becomes searchable within seconds (NRT), not transactionally.</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>Index is <strong>derived</strong> and fully rebuildable from the VCS (source of truth). No separate durability burden beyond the commit feed.</td>
+</tr>
+<tr>
+<td>Freshness</td>
+<td>Commit searchable in &lt; 10 s on the hot path.</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>ACL filtering at query time (never leak a file a user can't read); per-repo isolation; audit log of queries.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>Corpus
+  Lines of code:      2e9 lines
+  Files:              1e8 files
+  Avg file:           ~5 KB  -&gt;  raw source ~ 500 GB (compressed ~150 GB)
+
+Trigram index (for regex/substring)
+  ~ distinct trigrams per file small, but posting lists large.
+  Rule of thumb: trigram index ~ 1-2x source size -&gt; ~ 0.5-1 TB
+  Sharded by repo/file -&gt; target ~50 GB/shard -&gt; ~20 shards x3 replicas
+
+Symbol index (definitions + references)
+  Say ~50 symbols/file * 1e8 files = 5e9 symbol occurrences
+  ~ (symbol -&gt; [def/ref locations]) ~ a few hundred GB
+  Stored as KV + graph adjacency
+
+Query QPS
+  Peak 5,000 QPS interactive (substring/symbol)
+  Each substring query fans out to all ~20 trigram shards -&gt; 100K shard-RPCs/s
+  Regex queries rarer (say 5% of traffic) but each scans more candidates
+
+Commit / write path
+  1,000 commits/min ~ 17 commits/s
+  Each commit touches avg ~10 files -&gt; ~170 file re-index ops/s
+  Re-index = reparse changed files only (delta), not whole repo
+
+Cache
+  Hot query cache (popular symbol lookups, common substrings):
+  Top 500K queries * ~4 KB ~ 2 GB Redis
+  Per-shard page cache holds hot trigram postings
+</code></pre>
+<h2>5) API design</h2>
+<pre><code># Text / regex search
+POST /v1/code:search
+  body: {
+    q: &quot;func ServeHTTP&quot;,          # literal or regex (flag)
+    is_regex: false,
+    filters: { repo: &quot;core/*&quot;, lang: &quot;go&quot;, path: &quot;src/**&quot; },
+    top_k: 50,
+    page_token: &quot;&lt;opaque&gt;&quot;,
+    user_ctx: { uid, acl_groups[] }
+  }
+  -&gt; { matches: [{repo, path, line, col, snippet, highlights[], kind}],
+       next_page_token, truncated: bool }
+
+# Symbol / semantic
+GET  /v1/symbols:resolve?name=ServeHTTP&amp;kind=function   # definitions
+GET  /v1/symbols/{symbol_id}/references                 # find-all-callers
+GET  /v1/symbols:atCursor?repo=..&amp;path=..&amp;line=..&amp;col=..# go-to-definition
+
+# Ingest (internal, from VCS hook)
+POST /v1/index:onCommit
+  body: { repo, commit_sha, changed_files: [{path, action}] }
+  -&gt; { accepted, index_offset }
+</code></pre>
+<h2>6) Architecture — request &amp; data flow</h2>
+<h3>(a) ASCII layered diagram</h3>
+<pre><code>                 Developers (IDE plugin / web UI / CLI)
+                              |
+                              v
+                       [ CDN / Edge ]            static assets, NOT code results (ACL-sensitive)
+                              |
+                              v
+                  [ Global LB / GeoDNS ]         route to nearest region
+                              |
+                              v
+                  [ Code-Search Gateway ]        authN, attach user ACL groups, rate-limit
+                              |
+                              v
+            +========= Query Router / Planner =========+   decides which index to hit
+            |  symbol query? -&gt; symbol service          |
+            |  text/regex?   -&gt; trigram fan-out          |
+            +===========================================+
+                 |                                |
+        symbol   |                                |  text / regex
+                 v                                v
+        [ Symbol Service ]              +==== Trigram Coordinator ====+  scatter/gather
+        def/ref graph lookup           |  1. extract trigrams from q  |
+                 |                      |  2. AND postings -&gt; candidates|
+                 v                      |  3. fan-out to content shards |
+        [ Symbol Index (KV+graph) ]     +=============================+
+                 |                              |        |         |
+                 |                              v        v         v
+                 |                       [Trigram   [Trigram .. [Trigram
+                 |                        Shard 1]   Shard 2]    Shard N]
+                 |                        (file -&gt; trigram postings)
+                 |                              \       |       /
+                 |                               v      v      v
+                 |                        [ candidate files (narrowed) ]
+                 |                               |
+                 |                               v
+                 |                     [ Verify pass: actually run
+                 |                       substring/regex on candidates ]  &lt;- exact match
+                 |                               |
+                 +---------------+---------------+
+                                 v
+                       [ ACL filter: drop files user can't read ]  &lt;- per result
+                                 v
+                       [ Snippet + syntax highlight + blame ]
+                                 v
+                            results -&gt; developer
+
+
+WRITE / RE-INDEX PATH (on every commit, async)
+   VCS push --&gt; [ Commit Hook ] --&gt; [ Commit Queue (Kafka) ]   ordered per repo
+                                          |
+                          +---------------+----------------+
+                          v                                v
+                 [ Content Indexers ]              [ Symbol Indexers (parsers) ]
+                 compute trigrams of                language-aware parse of
+                 CHANGED files only                 changed files -&gt; AST -&gt; symbols
+                          |                                |
+                          v                                v
+                 [ Trigram Shards ]                 [ Symbol Index + xref graph ]
+                 incremental segment update         upsert defs/refs for changed files
+                          |
+                          v
+                 (old file's postings tombstoned, replaced)
+</code></pre>
+<p><strong>Read path (sync):</strong> A developer query hits the gateway, which authenticates and attaches the user's ACL groups. The <strong>Query Router</strong> decides the index: a <em>symbol</em> query (go-to-def, find-references) goes straight to the <strong>Symbol Service</strong>, which is a graph/KV lookup — fast and exact, no fan-out needed because symbols are keyed. A <em>text or regex</em> query goes to the <strong>Trigram Coordinator</strong>: it decomposes the query into its constituent trigrams, intersects ("AND") the trigram postings lists across shards to produce a <strong>narrowed candidate set</strong> of files that <em>could</em> match, then runs the actual substring/regex <strong>verify pass</strong> only on those candidates (you never regex the whole corpus — trigrams cut 100M files down to thousands). Results pass through an <strong>ACL filter</strong> that drops any file the user can't read, then get syntax-highlighted snippets, and return. Notably, code results are <em>not</em> edge-cached because they're ACL-sensitive.</p>
+<p><strong>Write path (async, on every commit):</strong> A VCS push fires a <strong>commit hook</strong> that enqueues the changed-file list into a per-repo-ordered Kafka topic. <strong>Content indexers</strong> recompute trigrams for <em>only the changed files</em> (delta indexing — never reprocess the whole repo) and update the trigram shards, tombstoning the old file's postings. In parallel, <strong>symbol indexers</strong> run language-aware parsers on the changed files, extract the AST, and upsert definitions and cross-references into the symbol graph. Because indexing is per-file-delta, a commit touching 10 files costs ~10 file re-index ops, which is why we can stay under a 10 s freshness SLA even at thousands of commits per minute. The whole index is derived from the VCS, so it's always rebuildable.</p>
+<h3>(b) Mermaid flowchart</h3>
+<div class="mermaid">
+flowchart TD
+  dev[Developers IDE / web / CLI] --> gw[Code-Search Gateway authN + ACL groups]
+  gw --> router{{Query Router: symbol or text/regex?}}
+
+  router -->|symbol| symsvc[Symbol Service def/ref lookup]
+  symsvc --> symidx[(Symbol Index KV + xref graph)]
+  symidx --> acl
+
+  router -->|text / regex| tcoord{{Trigram Coordinator extract trigrams}}
+  tcoord -->|AND postings| t1[Trigram Shard 1]
+  tcoord -->|AND postings| t2[Trigram Shard 2]
+  tcoord -->|AND postings| tN[Trigram Shard N]
+  t1 --> cand[Candidate files narrowed]
+  t2 --> cand
+  tN --> cand
+  cand --> verify[Verify: run substring/regex on candidates]
+  verify --> acl[ACL filter drop unreadable files]
+  acl --> snip[Snippet + syntax highlight + blame]
+  snip --> dev
+
+  push[VCS push] --> hook[Commit Hook]
+  hook --> cq[[Commit Queue Kafka per-repo order]]
+  cq --> cidx[Content Indexers trigrams of changed files]
+  cq --> sidx[Symbol Indexers parse changed files -> AST]
+  cidx --> tshards[(Trigram Shards delta update)]
+  sidx --> symidx
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<ul>
+<li><strong>Trigram index:</strong> <code>trigram -&gt; sorted postings of file_ids</code> (e.g. the string <code>ServeHTTP</code> yields trigrams <code>Ser, erv, rve, veH, eHT, HTT, TTP</code>). A regex/substring query intersects the postings of its required trigrams to narrow candidates, then verifies. Justification: regex over a corpus is impossible to do directly; trigrams turn it into a set-intersection problem (the Russ Cox / Google Code Search insight). Stored as compressed, immutable segments per shard (LSM-style append + merge), so reads are lock-free and hot postings stay in page cache.</li>
+<li><strong>Symbol index:</strong> two structures — <code>symbol_name -&gt; [definition locations]</code> (KV) and an <strong>adjacency graph</strong> <code>definition -&gt; [reference sites]</code> for find-callers / call hierarchy. Justification: semantic code navigation is a <em>graph</em> problem, not a text problem; keying by symbol gives O(1) jump-to-definition with no fan-out.</li>
+<li><strong>Forward/file metadata:</strong> <code>file_id -&gt; (repo, path, lang, commit_sha, acl_groups, size)</code> co-located on shards for ACL filtering and snippet retrieval without an extra hop.</li>
+<li><strong>Source-of-truth:</strong> the <strong>VCS itself</strong> — we store no canonical copy; the index is derived. We do keep a <strong>content-addressable blob cache</strong> of file bodies for fast snippet rendering, keyed by content hash (dedupes identical files across repos).</li>
+<li><strong>Why no SQL for the core:</strong> the workload is term/trigram-postings intersection and graph traversal — an inverted/graph layout beats relational joins by orders of magnitude here.</li>
+</ul>
+<h2>8) Deep dive</h2>
+<p><strong>Trigram index for regex (the crux that makes code search different).</strong> The naive approach — grep across 100M files per query — is hopeless. The trick: index every file by its set of trigrams. For a <em>literal</em> substring query, decompose it into trigrams and intersect their postings lists; the result is the set of files that contain all those trigrams, which is a tiny superset of the actual matches. For a <em>regex</em>, you analyze the regex's syntax tree to derive a boolean trigram query — e.g. <code>ServeHTTP|HandleFunc</code> becomes <code>(Ser AND erv AND ...) OR (Han AND and AND ...)</code> — that is <em>guaranteed not to miss</em> any matching file (it over-approximates), then you run the real regex engine only on the candidate files to get exact matches and line positions. This is the single most important idea in the design: <strong>trigrams reduce a corpus scan to a set intersection plus a small verification.</strong> The cost knobs are: very common trigrams (e.g. from whitespace or <code>{ }</code>) have huge postings lists, so we cap or skip low-selectivity trigrams; and the verify pass is parallelized across candidate files. This is exactly the Google Code Search / <code>codesearch</code> approach and I would name it as prior art while explaining the mechanics from first principles.</p>
+<p><strong>Incremental re-index on commit (the operational crux).</strong> Code changes constantly; re-indexing a whole repo per commit would never keep up. The design re-indexes at <strong>file granularity</strong>: the commit hook sends only the changed paths, indexers recompute trigrams and re-parse symbols for just those files, and the old file's postings are tombstoned and replaced. Two subtleties make this Staff-level: (1) <strong>symbol consistency</strong> — when a function's definition moves, the <em>references</em> to it (in other files, possibly other repos) don't change, but a <em>rename</em> invalidates them, so the symbol graph must handle stale edges gracefully (resolve-on-read, tolerate dangling refs until the referrer is re-indexed); (2) <strong>ordering</strong> — commits to the same repo must be applied in order (per-repo Kafka partition) so the index never reflects a non-existent intermediate state. Freshness then comes down to indexer throughput vs. commit rate; we autoscale indexers on consumer lag and keep the hot delta in an in-memory segment so a file is searchable seconds after push.</p>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Choice &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CAP</td>
+<td><strong>AP</strong> for serving — availability + low latency; a just-pushed commit may be briefly unindexed. Source-of-truth (VCS) is authoritative.</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td>Eventual; bounded by freshness lag (&lt; 10 s). Symbol graph tolerates transient dangling refs.</td>
+</tr>
+<tr>
+<td>Partitioning</td>
+<td><strong>Shard by repo (or repo-shard for the monorepo)</strong> so a commit's re-index is local and ACLs align to shard boundaries. Text queries fan out across shards; symbol queries are keyed and don't.</td>
+</tr>
+<tr>
+<td>Replication</td>
+<td>x3 per shard for availability + read throughput + hedged requests on the text fan-out tail.</td>
+</tr>
+<tr>
+<td>Index choice</td>
+<td><strong>Two indexes, deliberately:</strong> trigram (text/regex) + symbol graph (semantic). One size does not fit both query classes.</td>
+</tr>
+<tr>
+<td>Caching</td>
+<td>Redis result cache for hot symbol lookups and common substrings; per-shard page cache for hot postings. <strong>No CDN/edge cache for results</strong> (ACL-sensitive).</td>
+</tr>
+<tr>
+<td>Sync vs async</td>
+<td>Query path sync; re-index fully async via per-repo-ordered Kafka.</td>
+</tr>
+<tr>
+<td>Regex strategy</td>
+<td>Trigram over-approximation + exact verify pass — never scan the corpus directly.</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Low-selectivity trigrams / pathological regex:</strong> a regex whose trigrams are all common (e.g. matches <code>.*</code>) defeats narrowing and forces a near-full scan. <em>Mitigation:</em> detect low-selectivity queries, cap candidate-set size, return "too broad — refine" with partial results, and rate-limit expensive regex.</li>
+<li><strong>Tail shard on text fan-out:</strong> slowest trigram shard dominates p99. <em>Mitigation:</em> hedged requests to replicas + deadline-based partial results.</li>
+<li><strong>Indexer backlog after a huge commit/merge:</strong> a giant refactor touching 100K files floods the queue; freshness lag spikes. <em>Mitigation:</em> Kafka buffers; autoscale on lag; prioritize small interactive commits over bulk re-indexes via separate queues/lanes.</li>
+<li><strong>Stale symbol edges:</strong> a rename leaves dangling references until referrers re-index. <em>Mitigation:</em> resolve-on-read, mark unresolved refs as "stale," background reconciliation sweep.</li>
+<li><strong>ACL leak risk:</strong> serving a snippet from a file the user lost access to. <em>Mitigation:</em> ACL filter is a <em>hard</em> post-retrieval gate checked against current repo permissions, and snippet hydration re-verifies — never trust the index's cached ACL alone.</li>
+<li><strong>Hot repo (everyone searches core/):</strong> <em>Mitigation:</em> extra replicas for hot shards, result cache for the common queries against it.</li>
+<li><strong>Coordinator/router SPOF:</strong> <em>Mitigation:</em> stateless, horizontally scaled behind the LB.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>What breaks first:</strong> the <strong>commit re-index throughput</strong> and the <strong>text fan-out width</strong>. At 10× commits, indexer lag threatens the freshness SLA; at 10× repos, fanning text queries across hundreds of shards revives the tail-latency problem.</li>
+<li><strong>Fix 1 — sharded indexer pools with priority lanes:</strong> separate interactive-commit re-indexing (low latency) from bulk/backfill re-indexing (throughput), so a megacommit can't starve normal pushes.</li>
+<li><strong>Fix 2 — two-level fan-out / repo-routing:</strong> route text queries by repo/path filter so most queries hit a subset of shards rather than all of them; add a mid-tier coordinator for the rare cross-everything regex.</li>
+<li><strong>Fix 3 — bloom/summary filters per shard:</strong> keep a per-shard summary of which trigrams it holds so the coordinator skips shards that can't possibly match, cutting fan-out width.</li>
+<li><strong>Fix 4 — incremental symbol graph at scale:</strong> partition the xref graph and use resolve-on-read so cross-repo reference lookups don't require a global join.</li>
+<li><strong>Future — semantic layer:</strong> bolt on an embedding/vector tier for natural-language → code queries, reusing the same commit feed to embed changed files; merge with trigram results like the hybrid model in B01.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"How do you support regex over the whole corpus?"</strong> Trigram index: derive a boolean trigram query from the regex syntax tree that's guaranteed to over-approximate matches, intersect postings to get candidate files, then run the real regex only on those. Corpus scan becomes set intersection + small verify.</li>
+<li><strong>"Why not just use the same index for text and symbols?"</strong> Different query shapes. Text/regex is a postings-intersection problem (trigram inverted index); jump-to-definition and find-callers are a <em>graph</em> problem (keyed symbol + adjacency). Forcing both into one index makes both slow.</li>
+<li><strong>"How is a commit searchable within seconds?"</strong> Per-file delta re-index off a per-repo-ordered Kafka feed; only changed files are reprocessed; the hot delta sits in an in-memory segment queried alongside on-disk segments.</li>
+<li><strong>"How do you handle a rename that breaks references?"</strong> The symbol graph tolerates dangling edges; references resolve-on-read and are marked stale until the referrer re-indexes; a background sweep reconciles. We never block a commit on global reference fixup.</li>
+<li><strong>"How do you enforce code ACLs?"</strong> Hard post-retrieval filter against <em>current</em> repo permissions, plus re-verification at snippet hydration. Sharding by repo aligns ACL boundaries to shards. We never edge-cache code results.</li>
+<li><strong>"A user types a regex that matches everything — what happens?"</strong> We detect low-selectivity trigram queries, cap the candidate set, rate-limit, and return partial results with a "refine your query" hint rather than melting a shard.</li>
+<li><strong>"Monorepo vs polyrepo — does the design change?"</strong> Monorepo → shard the single tree by path/subtree, ACLs by directory; polyrepo → shard by repo. The trigram + symbol machinery is identical; only the sharding key and ACL granularity differ.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Phase</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–6 min</td>
+<td>Clarify</td>
+<td>Establish query modes (substring/regex/symbol), monorepo-vs-poly, freshness SLA, ACL model.</td>
+</tr>
+<tr>
+<td>6–10 min</td>
+<td>FR/NFR</td>
+<td>In/out scope; NFR table; commit to &lt; 100 ms substring, eventual consistency, derived index.</td>
+</tr>
+<tr>
+<td>10–16 min</td>
+<td>Estimation</td>
+<td>LOC/files → trigram index size → shard count → commit re-index ops/s → cache sizing.</td>
+</tr>
+<tr>
+<td>16–22 min</td>
+<td>API</td>
+<td>Text/regex search + symbol resolve/references + onCommit ingest.</td>
+</tr>
+<tr>
+<td>22–38 min</td>
+<td>Architecture</td>
+<td>Draw layered diagram; <strong>walk text read path (trigram → candidates → verify → ACL)</strong>, symbol path, then commit re-index path.</td>
+</tr>
+<tr>
+<td>38–50 min</td>
+<td>Deep dive</td>
+<td>Trigram-index-for-regex (the headline) AND incremental re-index-on-commit.</td>
+</tr>
+<tr>
+<td>50–56 min</td>
+<td>Tradeoffs + failures</td>
+<td>Two-index choice, low-selectivity regex, indexer backlog, ACL leak — each mitigated.</td>
+</tr>
+<tr>
+<td>56–60 min</td>
+<td>Scale 10×</td>
+<td>Priority indexer lanes + repo-routed fan-out + bloom shard filters.</td>
+</tr>
+</tbody>
+</table></article></div></body></html>

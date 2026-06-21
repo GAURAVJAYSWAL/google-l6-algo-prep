@@ -1,0 +1,373 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>A12 — Design a notification / pub-sub system</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="../index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="../index.html">&larr; All system-design questions</a><article class="doc"><h1>A12 — Design a notification / pub-sub system</h1>
+<p>This is the canonical fan-out prompt: a single triggering event (a comment, a price drop, a system alert) must reach the right recipients across multiple channels — push, email, SMS, in-app — reliably, without duplicates, and at scale. It tests the pub-sub fan-out model, multi-channel delivery, deduplication, delivery guarantees (at-least-once plus idempotency), backpressure, retries, ordering, and rate limiting. Google asks it because notifications underpin nearly every product (Gmail, Chat, Calendar, alerts, Search updates), and a Staff engineer must reason about delivery semantics — the gap between "we sent it" and "the user got it exactly once" — not just wire up a queue.</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>What triggers a notification, and what's the fan-out shape?</strong> A 1:1 (you got a DM), a 1:few (a comment on your doc), or a 1:millions (a celebrity posts, a global system alert)? The fan-out <em>fan width</em> is the central scaling variable — I'll assume we must handle <strong>both narrow and very wide fan-out</strong>.</li>
+<li><strong>Which channels?</strong> Mobile push (APNs/FCM), email, SMS, in-app/web — each has different latency, cost, deliverability, and provider semantics. I'll assume <strong>push + email + in-app</strong> as the core, with the design extensible to more.</li>
+<li><strong>Scale:</strong> Events/sec and resulting notifications/sec at peak? Fan-out means notifications ≫ events. I'll assume <strong>~100K events/sec → up to millions of notifications/sec</strong> on wide fan-out.</li>
+<li><strong>Delivery guarantee:</strong> At-most-once (fire and forget), <strong>at-least-once</strong> (retry until acked, dedupe on the client), or exactly-once (usually impractical end-to-end)? I'll assume <strong>at-least-once + idempotency keys</strong> = effectively-once for the user.</li>
+<li><strong>Latency target:</strong> Is this real-time (chat message in &lt; 1 s), near-real-time (seconds), or batchable (a daily digest)? Different classes coexist — I'll support a <strong>priority tiering</strong>.</li>
+<li><strong>Ordering:</strong> Must notifications for a given user/conversation arrive in order, or is per-notification independence fine? Strict global ordering is expensive; <strong>per-key (per-user/conversation) ordering</strong> is the usual ask.</li>
+<li><strong>User preferences &amp; rate limiting:</strong> Do users control channels, quiet hours, frequency caps? Must we suppress notification floods (don't send 500 emails for 500 likes)? Preference + rate limiting is a hard requirement, not a nicety.</li>
+<li><strong>Idempotency / dedup window:</strong> If a producer retries an event, or two services emit the "same" notification, how do we suppress the duplicate? Over what window?</li>
+<li><strong>Compliance:</strong> Unsubscribe/opt-out (legal for email/SMS), do-not-disturb, regional rules (GDPR)? These constrain delivery.</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> A notification system looks like "publish to a queue, workers send," but the Staff-level depth is in <strong>delivery semantics</strong> and <strong>fan-out at the tail</strong>. The questions that separate L6 from L5 are: <strong>delivery guarantee</strong> (naming at-least-once + idempotency rather than hand-waving "reliable"), <strong>wide-fan-out backpressure</strong> (a celebrity event must not drown narrow-fan-out users), and <strong>dedup + rate limiting</strong> (the difference between a useful product and a spam cannon). Raising delivery semantics and fan-out skew unprompted signals you've operated a notification platform, not just sketched one.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In scope:</strong>
+- <strong>Publish</strong> an event and <strong>fan it out</strong> to all subscribed/relevant recipients (pub-sub).
+- <strong>Multi-channel delivery</strong>: push (APNs/FCM), email, SMS, in-app/web.
+- <strong>Delivery guarantees</strong>: at-least-once with <strong>idempotency</strong> so the user effectively sees each notification once.
+- <strong>Deduplication</strong> of duplicate events/notifications within a window.
+- <strong>User preferences</strong>: per-channel opt-in/out, quiet hours, frequency caps.
+- <strong>Rate limiting</strong>: suppress floods (batch "500 likes" into one), per-user/per-channel caps.
+- <strong>Retries</strong> with backoff for transient channel failures; dead-letter for permanent ones.
+- <strong>Backpressure</strong> so a huge fan-out (celebrity/broadcast) doesn't overwhelm the system or starve other traffic.
+- <strong>Ordering</strong>: per-key (per-user/conversation) ordering where required.</p>
+<p><strong>Out of scope (defer):</strong>
+- The application logic that <em>decides</em> an event is notification-worthy (we receive the event).
+- Building the actual push/email/SMS transport (we integrate APNs/FCM/SMTP/SMS providers as adapters).
+- Notification <em>content</em> generation / templating internals (we take a rendered or templated payload).
+- Full analytics on engagement (open/click) beyond the delivery-tracking we need for retries.
+- In-app feed <em>storage/ranking</em> (we deliver to it; its ranking is a separate system).</p>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>~100K events/sec; fan-out to <strong>millions of notifications/sec</strong> peak. Subscriber lists up to tens of millions for broadcast.</td>
+</tr>
+<tr>
+<td>Latency</td>
+<td>Tiered: real-time (chat) &lt; 1 s p99; standard &lt; 5 s; digest/batch minutes-to-hours. Priority lanes keep urgent traffic ahead of bulk.</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td>99.99% for ingest + delivery pipeline. A channel-provider outage degrades <em>that channel</em>, not the system.</td>
+</tr>
+<tr>
+<td>Delivery guarantee</td>
+<td><strong>At-least-once + idempotency key</strong> → effectively-once for the user. The durable log makes "lost" notifications impossible; dedupe makes duplicates invisible.</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td><strong>Eventual.</strong> A notification arriving a few seconds late is fine; we never block ingest for global consistency.</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>11 nines on the ingest commit log + the dedup/idempotency store. Once accepted, a notification is never silently dropped.</td>
+</tr>
+<tr>
+<td>Ordering</td>
+<td>Per-key (per-user/conversation) ordering; no global total order (too expensive, rarely needed).</td>
+</tr>
+<tr>
+<td>Rate/abuse</td>
+<td>Per-user + per-channel frequency caps; flood collapse (batch). Hard requirement to avoid spamming users and tripping provider abuse limits.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>Event &amp; fan-out volume
+  Events/sec (peak):          100,000 /sec
+  Avg fan-out (most events narrow): ~10 recipients
+                              -&gt; ~1e6 notifications/sec baseline
+  Wide fan-out (broadcast):   one event -&gt; 10e6 recipients
+                              -&gt; a single such event = 10M deliveries to schedule
+  Design target:              sustain a few million deliveries/sec, absorb spikes
+
+Per-channel split (assume)
+  Push:  60%  -&gt; ~600K/sec
+  In-app:30%  -&gt; ~300K/sec
+  Email: 10%  -&gt; ~100K/sec  (provider rate-limited, batched)
+
+Dedup / idempotency store
+  Keep idempotency keys for a 24h window:
+  1e6 notif/sec * 86,400 s ~ 8.6e10 keys/day  (too many to keep all)
+  -&gt; keep per-(user,event) dedup keys with short TTL (minutes-hours)
+     hot set sized to in-flight + recent: e.g. last 1h
+     1e6/sec * 3,600 ~ 3.6e9 keys * ~32 B ~ 115 GB -&gt; sharded Redis / KV w/ TTL
+  -&gt; for at-least-once delivery idempotency, the RECEIVER (device/client) also dedupes by id
+
+Storage (in-app notification feed)
+  Store per-user notifications: assume 100M active users * ~100 recent each * ~500 B
+                              ~ 5 TB  (sharded KV, TTL'd / capped per user)
+
+Queue / log throughput
+  Commit log must absorb 100K events/sec + millions of fan-out deliveries/sec
+  Kafka partitions sized so each handles tens of thousands msg/sec
+  -&gt; hundreds of partitions, keyed for per-user ordering
+
+Bandwidth / provider limits
+  Email/SMS providers cap send rate -&gt; per-provider token-bucket throttles
+  Push (APNs/FCM) batched; respect provider connection + rate limits
+</code></pre>
+<h2>5) API design</h2>
+<pre><code># Publish (producers: app services emit events)
+POST /v1/events:publish
+  body: {
+    event_id: &quot;&lt;producer-supplied, used for dedup&gt;&quot;,   # idempotency at ingest
+    type: &quot;comment|price_drop|alert|...&quot;,
+    audience: { user_ids:[...] } | { topic: &quot;doc:123:subscribers&quot; },
+    payload: { title, body, data{} },
+    priority: &quot;realtime|standard|digest&quot;,
+    channels: [&quot;push&quot;,&quot;email&quot;,&quot;inapp&quot;]   # or &quot;auto&quot; -&gt; resolve from prefs
+  }
+  -&gt; { accepted, event_offset }          # offset in the commit log
+
+# Subscriptions / topics
+POST   /v1/topics/{topic}/subscribe      body: { user_id, channels[] }
+DELETE /v1/topics/{topic}/subscribe      body: { user_id }
+
+# User preferences
+PUT  /v1/users/{user_id}/preferences
+  body: { channels:{push:true,email:false}, quiet_hours:{...}, freq_cap_per_hour:5 }
+
+# In-app feed (client read)
+GET  /v1/users/{user_id}/notifications?after=&lt;token&gt;&amp;limit=50
+POST /v1/users/{user_id}/notifications/{id}:ack   # client confirms receipt (dedupe + read-state)
+
+# Delivery webhook (from channel providers, for status/retry)
+POST /v1/delivery/callback   body: { notification_id, channel, status, provider_ref }
+</code></pre>
+<h2>6) Architecture — request &amp; data flow</h2>
+<h3>(a) ASCII layered diagram</h3>
+<pre><code>                 Producers (app services emit events)
+                                |
+                                v
+                       [ API Gateway ]            authN/Z, validate, rate-limit producers
+                                |
+                                v
+                    [ Ingest / Publish Service ]  idempotency check on event_id (dedup at source)
+                                |
+                                v
+                   [ Commit Log (Kafka) ]         durable, ordered, partitioned -&gt; never lose an event
+                                |
+                                v
+              +========= Fan-out Service =========+   the 1-&gt;N expansion brain
+              |  resolve audience (topic -&gt; subs) |
+              |  load user prefs + channel routing|   &lt;-- skip opted-out, apply quiet hours
+              |  apply RATE LIMIT / flood collapse |
+              |  emit per-recipient delivery tasks |
+              +===================================+
+                                |
+                                v
+                  [ Delivery Queues (per priority) ]   realtime | standard | digest lanes
+                       |              |             |   (priority + per-channel sub-queues)
+          +------------+      +-------+------+      +-----------+
+          v                   v              v                  v
+   [ Push Workers ]    [ Email Workers ] [ In-app Workers ] [ SMS Workers ]
+   APNs / FCM          SMTP / provider   write to feed KV   SMS provider
+          |                   |              |                  |
+   per-provider         per-provider     [ In-app feed     per-provider
+   token bucket         token bucket      store (KV) ]     token bucket
+          |                   |              |                  |
+          +---------+---------+--------------+------------------+
+                    v
+          [ Delivery Tracker ]  status, idempotency key check, retry w/ backoff,
+                    |           dead-letter on permanent failure
+                    v
+          [ Idempotency / Dedup Store (Redis, TTL) ]  per (user,event,channel) -&gt; &quot;sent&quot;
+                    |
+                    v
+          ack / status callbacks &lt;-- providers + clients  (client also dedupes by notif_id)
+</code></pre>
+<p><strong>Write/ingest path:</strong> A producer calls <strong>publish</strong> with a producer-supplied <code>event_id</code>. The <strong>ingest service</strong> checks that <code>event_id</code> against the <strong>idempotency store</strong> — a retried publish is collapsed here (dedup at the source) — then appends the event to the durable, ordered <strong>commit log (Kafka)</strong>, partitioned so a given user/conversation's events land on the same partition (per-key ordering). Acceptance is acknowledged the instant the event is in the log; everything after is asynchronous, so ingest stays fast and lossless.</p>
+<p><strong>Fan-out + delivery path:</strong> The <strong>Fan-out Service</strong> consumes the log and performs the 1→N expansion: resolve the audience (for a topic, look up its subscriber list), load each recipient's <strong>preferences</strong> (skip opted-out channels, honor quiet hours), apply <strong>rate limiting / flood collapse</strong> (batch "500 likes" into one summary, enforce per-user frequency caps), and emit one <strong>delivery task</strong> per (recipient, channel) into <strong>priority-tiered delivery queues</strong> (realtime / standard / digest, with per-channel sub-queues). <strong>Channel workers</strong> (push, email, in-app, SMS) pull from their queues, each gated by a <strong>per-provider token bucket</strong> so we never exceed a provider's rate limit. Before sending, each worker checks the <strong>idempotency/dedup store</strong> for <code>(user, event, channel)</code>; after a successful send it records "sent." The <strong>Delivery Tracker</strong> watches provider callbacks, <strong>retries with backoff</strong> on transient failures, and <strong>dead-letters</strong> permanent ones. Because delivery is at-least-once, the <em>client also dedupes</em> by <code>notification_id</code> — so even a duplicate that slips through is invisible to the user.</p>
+<h3>(b) Mermaid flowchart</h3>
+<div class="mermaid">
+flowchart TD
+  prod[Producers app services] --> gw[API Gateway authZ + producer rate-limit]
+  gw --> ingest[Ingest / Publish Service idempotency on event_id]
+  ingest --> log[[Commit Log Kafka partitioned for per-key order]]
+  log --> fan{{Fan-out Service resolve audience + prefs + rate-limit}}
+  fan --> qrt[Delivery Queue realtime]
+  fan --> qstd[Delivery Queue standard]
+  fan --> qdig[Delivery Queue digest]
+  qrt --> push[Push Workers APNs / FCM]
+  qstd --> email[Email Workers SMTP]
+  qstd --> inapp[In-app Workers feed write]
+  qdig --> email
+  push --> tb1[(Per-provider token bucket)]
+  email --> tb2[(Per-provider token bucket)]
+  inapp --> feed[(In-app feed store KV)]
+  push --> track[Delivery Tracker retry + backoff + dead-letter]
+  email --> track
+  inapp --> track
+  track --> dedup[(Idempotency / Dedup store Redis TTL)]
+  track --> cb[ack / status callbacks - client dedupes by notif_id]
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<ul>
+<li><strong>Commit log (Kafka):</strong> the durable ingest backbone — <code>partition(user/conversation) -&gt; ordered events</code>. Justification: gives durability (never lose an accepted event), ordering per key (partition), and natural backpressure (consumers lag instead of dropping). Partitioning by user/conversation id delivers per-key ordering without a global lock.</li>
+<li><strong>Idempotency / dedup store (Redis or sharded KV with TTL):</strong> <code>key = hash(user, event_id, channel) -&gt; "sent" + timestamp</code>, short TTL (minutes–hours). Justification: at-least-once retries and duplicate producers are inevitable; a fast TTL'd KV makes "have I already delivered this?" an O(1) check, turning at-least-once into effectively-once. Not durable long-term by design — the window only needs to cover the retry horizon.</li>
+<li><strong>Subscription / topic store (KV or SQL):</strong> <code>topic -&gt; [user_ids]</code> and <code>user -&gt; [topics]</code>. For huge subscriber lists (broadcast), store the list in a scalable KV and stream it during fan-out rather than loading it all into memory.</li>
+<li><strong>User preferences (KV, low-latency):</strong> <code>user -&gt; {channel opt-ins, quiet_hours, freq_caps}</code> — read on every fan-out, so it must be fast; cache hot users.</li>
+<li><strong>In-app feed store (sharded KV, capped/TTL'd per user):</strong> <code>user -&gt; recent notifications</code>, write-on-deliver, read by the client feed. Capped per user (e.g., last N) so it doesn't grow unbounded.</li>
+<li><strong>Rate-limit state (Redis):</strong> per-(user, channel) token buckets / counters with sliding windows for frequency caps and flood collapse; per-provider token buckets for outbound provider limits.</li>
+<li><strong>Dead-letter store:</strong> failed-after-max-retries notifications, for inspection and manual replay.</li>
+</ul>
+<h2>8) Deep dive</h2>
+<p><strong>Delivery guarantees: at-least-once + idempotency = effectively-once (the crux).</strong> True end-to-end exactly-once is generally impractical (the classic two-generals problem: the network between us and the device can drop the ack after delivery), so the right model is <strong>at-least-once delivery plus idempotent processing</strong>. The durable commit log guarantees we never <em>lose</em> an accepted notification — a worker crash just means the message is redelivered. To stop the resulting <em>duplicates</em>, every delivery is keyed by an <strong>idempotency key</strong> <code>(user, event_id, channel)</code>: the worker checks the dedup store before sending and records "sent" after, so a redelivered task is suppressed. Because that check-then-send isn't perfectly atomic across a crash, we add a second line of defense — the <strong>client/device dedupes by <code>notification_id</code></strong> — so even a duplicate that slips past the server is invisible to the user. The net guarantee the user experiences is <em>effectively-once</em>, achieved without the cost and fragility of trying to make the whole pipeline transactional.</p>
+<p><strong>Wide fan-out + backpressure (the scaling crux).</strong> Fan-out width is wildly skewed: most events hit ~10 users, but a broadcast or celebrity event hits tens of millions — a single event can generate more delivery tasks than the entire baseline load. If handled naively, that one event monopolizes workers and starves everyone else (the <em>celebrity problem</em>). Defenses: (1) <strong>decouple fan-out from delivery</strong> via queues, so the expansion is just enqueuing tasks, not synchronous sends; (2) <strong>chunk the subscriber list</strong> — the fan-out service streams a 10M-subscriber list in batches rather than materializing it, and can parallelize across fan-out workers; (3) <strong>priority lanes</strong> — real-time narrow-fan-out traffic rides a separate queue from bulk broadcast, so a celebrity post can't delay your chat message; (4) <strong>backpressure</strong> — when delivery queues build up, the system slows fan-out consumption (Kafka lag) rather than dropping; the log absorbs the backlog and we catch up. (5) <strong>fair scheduling</strong> across events so one giant fan-out is interleaved with, not blocking, many small ones. This is exactly the "don't let one whale drown the minnows" reasoning that signals Staff.</p>
+<p><strong>Rate limiting &amp; flood collapse.</strong> Two distinct concerns. <em>Outbound provider limits</em>: APNs/FCM/SMTP/SMS each cap send rate, so each channel worker pulls through a <strong>per-provider token bucket</strong> — exceeding it gets you throttled or abuse-flagged. <em>User-facing frequency caps / flood collapse</em>: 500 people liking your post should be <strong>one</strong> "500 people liked your post," not 500 notifications. The fan-out service maintains per-user, per-type counters in Redis with a short window; when a flood is detected it <strong>coalesces</strong> into a single summary notification and enforces a per-hour cap, deferring or dropping excess per user preference. This is the difference between a notification system users keep on and one they mute.</p>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Choice &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Delivery guarantee</td>
+<td><strong>At-least-once + idempotency key</strong> (effectively-once). Exactly-once end-to-end is impractical (ack can be lost post-delivery); dedupe at worker + client makes duplicates invisible.</td>
+</tr>
+<tr>
+<td>CAP</td>
+<td><strong>AP</strong> — favor availability; a notification arriving seconds late or via a different replica is fine. Never block ingest for consistency.</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td>Eventual. The commit log gives durability + ordering; delivery is asynchronous.</td>
+</tr>
+<tr>
+<td>Ordering</td>
+<td><strong>Per-key (per-user/conversation)</strong> via partitioned log. Global total order is rejected — too expensive, rarely needed.</td>
+</tr>
+<tr>
+<td>Sync vs async</td>
+<td>Ingest acks synchronously once in the log; <strong>fan-out and delivery fully async</strong> via queues — this is what enables backpressure and wide fan-out.</td>
+</tr>
+<tr>
+<td>Fan-out: push vs pull</td>
+<td><strong>Hybrid.</strong> Push (write per-recipient delivery tasks) for normal fan-out; for celebrity/broadcast, lean toward <strong>pull/fan-out-on-read</strong> for the in-app feed (don't materialize 10M writes) while still pushing the urgent channels.</td>
+</tr>
+<tr>
+<td>Dedup window</td>
+<td>Short-TTL idempotency keys (retry horizon), <em>not</em> permanent — bounds storage; client dedup covers the long tail.</td>
+</tr>
+<tr>
+<td>Rate limiting</td>
+<td>Per-provider token buckets (outbound) <strong>and</strong> per-user frequency caps / flood collapse (user-facing) — two separate mechanisms.</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Celebrity / broadcast fan-out (the #1 risk):</strong> one event → tens of millions of deliveries starves all other traffic. <em>Mitigation:</em> decouple fan-out from delivery via queues, chunk the subscriber list, priority lanes, fair scheduling, and fan-out-on-read for the in-app feed of huge audiences.</li>
+<li><strong>Channel-provider outage / throttling:</strong> APNs/FCM/SMTP goes down or rate-limits us. <em>Mitigation:</em> per-provider token buckets + retry with backoff; the affected channel degrades while others keep flowing; dead-letter and replay when the provider recovers.</li>
+<li><strong>Duplicate storm:</strong> producer retries or a redelivered task spams the user. <em>Mitigation:</em> idempotency key at worker + <code>notification_id</code> dedup at client — effectively-once.</li>
+<li><strong>Thundering herd on retry:</strong> many failed deliveries all retry at the same instant after an outage. <em>Mitigation:</em> exponential backoff + jitter; cap retry attempts → dead-letter.</li>
+<li><strong>Hot partition / hot user:</strong> a very active user/conversation overloads one log partition. <em>Mitigation:</em> monitor partition lag; for extreme cases, sub-partition while preserving per-key ordering semantics where required.</li>
+<li><strong>Backpressure → unbounded queue growth:</strong> delivery can't keep up; queues grow without bound. <em>Mitigation:</em> the durable log absorbs lag (bounded by retention); autoscale workers on queue depth; shed/defer <em>digest-tier</em> traffic first, never real-time.</li>
+<li><strong>Preference/rate-limit store latency:</strong> read on every fan-out; if slow, fan-out stalls. <em>Mitigation:</em> cache hot users' prefs; fail-open to a safe default (respect global opt-outs, defer rather than spam).</li>
+<li><strong>Dead-letter black hole:</strong> permanently-failed notifications pile up unnoticed. <em>Mitigation:</em> alert on dead-letter rate; periodic replay tooling; surface as an ops SLO.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>What breaks first:</strong> the <strong>fan-out stage under broadcast skew</strong> and the <strong>dedup store size</strong>. At 1M events/sec with wide fan-out, materializing per-recipient tasks for every broadcast and keeping all idempotency keys becomes the bottleneck.</li>
+<li><strong>Fix 1 — fan-out-on-read for huge audiences:</strong> for topics with millions of subscribers, <em>don't</em> write a per-user task to the feed; store the event once and have each user's feed query pull it on read (hybrid push/pull) — collapses 10M writes into 1, while urgent channels (push) still fan out.</li>
+<li><strong>Fix 2 — hierarchical / parallel fan-out:</strong> a tree of fan-out workers that each expand a slice of a giant subscriber list, so no single worker owns a 10M expansion.</li>
+<li><strong>Fix 3 — shard the dedup store harder + shorten TTL:</strong> scale the idempotency KV horizontally and tighten the window to just the retry horizon; lean more on client-side dedup for the long tail.</li>
+<li><strong>Multi-region active-active:</strong> ingest and deliver from the region nearest the producer/recipient; replicate the commit log cross-region for durability; per-region delivery workers respect global per-user rate limits via a replicated counter.</li>
+<li><strong>Channel growth:</strong> new channels (WhatsApp, web push) plug in as new worker pools + token buckets behind the same queues — the core stays unchanged because channels are adapters.</li>
+<li><strong>Cost 10×:</strong> email/SMS dominate cost; push harder on batching/digest tiers and on collapsing floods, and route low-priority notifications to cheaper channels (in-app over SMS).</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"Exactly-once or at-least-once?"</strong> At-least-once + idempotency. Exactly-once end-to-end is impractical because the ack can be lost <em>after</em> the device received the notification (two-generals). I make it <em>effectively-once</em> with an idempotency key at the worker and <code>notification_id</code> dedup at the client.</li>
+<li><strong>"How do you handle a celebrity with 10M followers?"</strong> Decouple fan-out from delivery via queues so expansion is just enqueuing; chunk/stream the subscriber list across parallel fan-out workers; use priority lanes so it can't starve real-time traffic; and use fan-out-on-read for the in-app feed so I don't do 10M writes — pull on read instead.</li>
+<li><strong>"How do you guarantee a notification isn't lost?"</strong> The durable commit log: once the publish is acked, the event is in the log and survives any worker crash via redelivery. Delivery is retried with backoff until acked or dead-lettered; nothing is silently dropped.</li>
+<li><strong>"How do you stop sending 500 notifications for 500 likes?"</strong> Flood collapse: per-user, per-type counters in a short window detect the flood and coalesce it into one summary ("500 people liked your post"), plus a per-hour frequency cap from user preferences.</li>
+<li><strong>"How do you respect APNs/email provider limits?"</strong> Each channel worker pulls through a per-provider token bucket sized to the provider's rate limit; exceeding it just slows that channel (backpressure), never errors the system.</li>
+<li><strong>"How do you order notifications?"</strong> Per-key ordering via the partitioned commit log — a user's/conversation's events share a partition, so they're processed in order. I deliberately avoid global total ordering (too expensive, rarely needed).</li>
+<li><strong>"What about user quiet hours / opt-outs?"</strong> Read user preferences during fan-out: skip opted-out channels entirely, defer non-urgent notifications during quiet hours, and honor legal unsubscribe for email/SMS — fail-open to the <em>safer</em> (less-spammy) default if the preference store is slow.</li>
+<li><strong>"What happens when delivery falls behind?"</strong> Backpressure: consumers lag on the durable log (bounded by retention) rather than dropping; autoscale workers on queue depth; shed digest-tier traffic first while protecting real-time. We catch up when load subsides.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Phase</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–6 min</td>
+<td>Clarify</td>
+<td>Nail fan-out shape (narrow vs broadcast), channels, delivery guarantee, latency tiers, ordering, rate limiting.</td>
+</tr>
+<tr>
+<td>6–10 min</td>
+<td>FR/NFR</td>
+<td>In/out scope; NFR table; commit to AP / eventual + at-least-once + idempotency + per-key ordering.</td>
+</tr>
+<tr>
+<td>10–16 min</td>
+<td>Estimation</td>
+<td>Events → fan-out → notifications/sec, per-channel split, dedup store sizing, feed storage, queue throughput.</td>
+</tr>
+<tr>
+<td>16–22 min</td>
+<td>API</td>
+<td>publish (with event_id idempotency) + subscriptions + preferences + feed read/ack + delivery callback.</td>
+</tr>
+<tr>
+<td>22–38 min</td>
+<td>Architecture</td>
+<td>Draw layered diagram; <strong>walk ingest path then fan-out/delivery path</strong>; emphasize commit log + priority queues + token buckets.</td>
+</tr>
+<tr>
+<td>38–50 min</td>
+<td>Deep dive</td>
+<td>At-least-once + idempotency (effectively-once) AND wide-fan-out backpressure; cover rate limiting / flood collapse.</td>
+</tr>
+<tr>
+<td>50–56 min</td>
+<td>Tradeoffs + failures</td>
+<td>Push-vs-pull fan-out, celebrity problem, provider outage, duplicate storm, retry herd — each with a mitigation.</td>
+</tr>
+<tr>
+<td>56–60 min</td>
+<td>Scale 10×</td>
+<td>Fan-out-on-read + hierarchical fan-out + multi-region; what breaks first and why.</td>
+</tr>
+</tbody>
+</table></article></div></body></html>

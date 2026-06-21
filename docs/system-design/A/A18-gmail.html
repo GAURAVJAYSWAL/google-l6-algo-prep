@@ -1,0 +1,376 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>A18 — Design Gmail / a Large-Scale Email System</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="../index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="../index.html">&larr; All system-design questions</a><article class="doc"><h1>A18 — Design Gmail / a Large-Scale Email System</h1>
+<p>Build a web-scale email service: store billions of mailboxes durably, let users send/receive/search/thread messages with low latency, and sync across devices in near-real-time. Google asks this because it fuses three hard subsystems — <strong>distributed storage</strong> (mailbox data), <strong>full-text search/indexing</strong> (per-user inverted index), and <strong>user-facing latency</strong> (interactive inbox + push) — so it tests whether you can decompose a sprawling product into clean, independently-scaled services rather than one monolith.</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>Scope of "email":</strong> Just send/receive/store/read/search/thread an interactive inbox, or also the SMTP edge (MX, relay, deliverability), spam/anti-abuse, labels/filters, and calendar? I'd propose: core mailbox + search + threading + sync in scope; SMTP-edge details and the spam ML pipeline scoped <em>out</em> (acknowledge as a pipeline, don't design the model).</li>
+<li><strong>Scale:</strong> How many users (I'll assume ~1.5 B), messages/user, and average + p99 message size (text vs large attachments)?</li>
+<li><strong>Read/write mix:</strong> Email is <strong>read-heavy and search-heavy</strong> — users open/scroll/search far more than they send. Confirm so I optimize the read and index paths hardest.</li>
+<li><strong>Latency targets:</strong> Inbox open and search should feel instant (p99 &lt; 200 ms). Send can be async (accept fast, deliver in background). Confirm send is "accept-then-deliver."</li>
+<li><strong>Consistency:</strong> Is read-your-writes within a mailbox required (you must see a message you just sent/read-flagged immediately) while cross-user delivery can be eventually consistent (seconds)? I'll assume yes — strong <em>per-mailbox</em>, eventual <em>cross-mailbox</em>.</li>
+<li><strong>Sync protocol:</strong> Native IMAP/POP compatibility required, or our own push/sync protocol (delta sync) for first-party clients, with an IMAP gateway bolted on?</li>
+<li><strong>Attachments:</strong> Max size, dedup expectations (the same 10 MB deck mailed to 500 people — store once?), retention.</li>
+<li><strong>Compliance/retention:</strong> Hard-delete vs trash-with-grace, legal hold, per-region data residency.</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> Whether you can <strong>decompose</strong> a giant product into separable services (storage, index, threading, delivery, sync, attachments) each with its own data model and scaling story, AND pick the right partition key. The single most important early statement: <strong>shard everything by user_id</strong> so a mailbox + its index + its sync state are co-located and a query never fans out across the fleet. A Staff candidate says that in minute two and defends it.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In scope:</strong>
+- Send a message (accept fast, deliver asynchronously to recipients).
+- Receive/deliver into recipient mailboxes; apply user filters/labels on delivery.
+- Read a message; list/scroll the inbox and folders/labels; mark read/star/archive/trash.
+- <strong>Full-text search</strong> over a user's mail (from/to/subject/body, with operators) returning ranked results fast.
+- <strong>Threading</strong> (group a conversation; reply chains collapse into one thread).
+- <strong>Sync/push</strong> to multiple devices in near-real-time (new mail appears, flags converge).
+- <strong>Attachments</strong>: upload, store, dedup, download/preview.</p>
+<p><strong>Out of scope (defer, state explicitly):</strong>
+- SMTP-edge mechanics: MX records, greylisting, SPF/DKIM/DMARC, outbound deliverability/IP-reputation.
+- The <strong>spam / phishing ML model</strong> itself — we wire in a scoring service as an async stage; we don't design the classifier.
+- Rich features: calendar, chat, smart-compose, ads targeting.
+- E2E encryption semantics (mention as a constraint that would break server-side search).</p>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>~1.5 B users; assume 20 K messages/user avg ⇒ ~3×10^13 messages; tens of PB of mail + attachments.</td>
+</tr>
+<tr>
+<td>Latency</td>
+<td>Inbox open p99 &lt; 200 ms; search p99 &lt; 300 ms; send <em>accept</em> &lt; 100 ms (delivery async, seconds).</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td>99.99% for read/inbox; sending degrades gracefully (queue + retry) rather than failing the user.</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td><strong>Strong/read-your-writes per mailbox</strong> (your own reads, flags, sends are immediately visible); <strong>eventual cross-mailbox</strong> delivery (seconds).</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>11 nines — <em>never lose a delivered email</em>. Replicated storage + WAL; attachments in replicated/erasure-coded blob store.</td>
+</tr>
+<tr>
+<td>Read/write mix</td>
+<td>Heavily read- and search-skewed; optimize index + read path; writes (sends) are comparatively rare and async.</td>
+</tr>
+<tr>
+<td>Security/privacy</td>
+<td>Per-user isolation, encryption at rest/in transit, strict authz; per-region residency where required.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>Users / volume
+  users                 = 1.5 B
+  msgs/user (avg)       = 20,000
+  total messages        = 1.5e9 * 2e4        = 3e13 messages
+  avg msg size (text)   = 50 KB (headers+body, attachments separate)
+  mail text storage     = 3e13 * 50 KB       = 1.5 EB logical
+    (most is cold; tiered storage + compression ~3x =&gt; ~0.5 EB hot+warm physical/replica-adjusted)
+  attachments           = ~75% of bytes; dedup'd in blob store, erasure-coded (1.4x not 3x)
+
+Throughput
+  emails sent/day       = 1.5e9 users * ~30 sent/day ≈ 4.5e10/day ≈ 520k sends/s avg, ~1.5M peak
+  reads/opens           ~ 10x sends            ≈ 5–15 M read ops/s peak
+  search queries        ~ 1–2 per active user/day; assume 300k–800k QPS peak
+
+Index
+  index ~ 30% of text size (postings + terms) ≈ hundreds of TB of per-user inverted indexes
+  built async on delivery; near-real-time (seconds) visibility
+
+Connections / sync (push)
+  concurrent connected devices (long-poll/WS): assume 200 M peak
+  per gateway ~1 M conns  =&gt; ~200 gateway nodes for push/sync fan-in
+
+Bandwidth
+  attachment egress dominates; CDN-front previews/downloads
+  delivery write path: 1.5M sends/s * (fan-out avg ~2 recipients) * 50 KB ≈ 150 GB/s internal peak
+</code></pre>
+<h2>5) API design</h2>
+<pre><code># Client (first-party push/sync client; IMAP gateway translates to these)
+sendMessage(from, [to,cc,bcc], subject, body, [attachmentIds]) -&gt; {messageId, threadId}   # 202 accept
+getMessage(messageId)                                          -&gt; {message, threadId, labels}
+listMailbox(folder|label, cursor, limit)                       -&gt; {threadHeaders[], nextCursor}
+search(query, cursor, limit)                                   -&gt; {rankedThreadHeaders[], nextCursor}
+modifyMessage(messageId, addLabels[], removeLabels[], read?)   -&gt; {ok}     # star/archive/trash/read
+getThread(threadId)                                            -&gt; {messages[] in order}
+
+# Attachments (separate blob path)
+initAttachmentUpload(size, contentType)  -&gt; {uploadUrl, attachmentId}   # client PUTs to blob/CDN
+getAttachment(attachmentId)              -&gt; {downloadUrl}               # signed URL
+
+# Sync / push (delta)
+syncStream(deviceId, sinceHistoryId)     -&gt; stream of {changes...}      # long-poll / WebSocket
+# server assigns a monotonically increasing historyId per mailbox; client says &quot;give me &gt;= X&quot;
+
+# Internal
+deliver(recipientUserId, message)        # async worker writes to mailbox + enqueues index
+enqueueIndex(userId, messageId)          # async indexer builds inverted index
+scoreSpam(message) -&gt; {score}            # async stage; out-of-scope model behind this call
+</code></pre>
+<h2>6) Architecture — request &amp; data flow</h2>
+<p>THE CENTERPIECE. Email's distinctive layers are the <strong>async delivery pipeline</strong>, the <strong>per-user inverted index</strong>, the <strong>attachment/blob+CDN path</strong>, and a <strong>push/sync gateway</strong> holding device connections. Both diagrams are tailored to that — note send is async, read/search are synchronous and latency-critical.</p>
+<h3>(a) ASCII layered diagram</h3>
+<pre><code>                 Clients (web / mobile / IMAP &amp; POP clients)
+                          |                          ^
+            send/read/search (HTTPS)        push/sync (WebSocket / long-poll)
+                          v                          |
+                    [ CDN / Edge ]  attachment downloads + static assets cached at edge
+                          |
+                          v
+                 [ Global LB / GeoDNS ]  route to nearest region holding the user's shard
+                          |
+                          v
+                 [ API Gateway ]  authN/Z (OAuth), rate-limit, route by user_id
+            /            |              |               \            \
+           v             v              v                v            v
+   [ Send svc ]   [ Mailbox/Read ]  [ Search svc ]  [ Sync/Push   ]  [ Attachment ]
+   (accept fast)  (list/get/flags)  (query index)   gateway (conns)  svc (blob)
+        |               |                |                ^                |
+        | enqueue       | read           | read           | notify         | put/get
+        v               v                v                |                v
+   [ Delivery Queue ]   |          [ Per-user INVERTED   ]|         [ Blob store ]
+   (Kafka)              |          [ INDEX shards        ]|         (erasure-coded,
+        |               |           (sharded by user)    |          dedup by hash)
+        v               |                ^                |
+   [ Delivery workers ] |                | async build   |
+     - run filters      |                |               |
+     - call spam score -+--(out of scope ML)             |
+     - write to mailbox v                |               |
+        +-----&gt; [ MAILBOX STORE ] -------+               |
+                 (per-user, sharded by user_id;          |
+                  LSM/wide-row: messages, threads,        |
+                  labels, flags, historyId)               |
+                      |  on new write: bump historyId,     |
+                      |  emit change event ----------------+--&gt; Sync gateway pushes delta to devices
+                      v
+                 [ Index queue ] --&gt; [ Indexer workers ] --&gt; per-user inverted index
+</code></pre>
+<p><strong>Send path (async, accept-then-deliver):</strong> Client calls <code>sendMessage</code>; the <strong>Send service</strong> validates, writes the message to the sender's "Sent" mailbox (so they see it immediately — read-your-writes), enqueues a delivery job on <strong>Kafka</strong>, and returns <strong>202</strong> in &lt; 100 ms. <strong>Delivery workers</strong> consume the queue, run the recipient's <strong>filters/labels</strong>, call the (out-of-scope) <strong>spam-scoring</strong> stage, and write the message into each recipient's <strong>mailbox store</strong> (sharded by <code>user_id</code>). Each mailbox write <strong>bumps a per-mailbox <code>historyId</code></strong> and emits a change event, which (a) enqueues an <strong>index</strong> job and (b) signals the <strong>sync gateway</strong> to push the new mail to that user's connected devices. Decoupling send from delivery is what keeps the user-facing send fast and absorbs spikes.</p>
+<p><strong>Read / list / search path (synchronous, latency-critical):</strong> <code>listMailbox</code>/<code>getMessage</code> hit the <strong>Mailbox/Read service</strong>, which reads the user's shard (recent mail is in cache/memtable). <code>search</code> hits the <strong>Search service</strong>, which queries that user's <strong>inverted-index shard</strong> (co-located by <code>user_id</code>, so no fleet-wide fan-out), ranks results, and returns thread headers. Attachment bodies are served from the <strong>blob store via CDN</strong> with signed URLs, never inline through the API tier. Everything for one user lives in one shard ⇒ p99 stays low.</p>
+<p><strong>Sync/push path:</strong> Devices hold a long-lived connection to a <strong>sync gateway</strong> and remember the last <code>historyId</code> they saw. On any mailbox change, the gateway streams the <strong>delta</strong> (changes since that <code>historyId</code>) so devices converge in near-real-time; on reconnect, the device replays from its stored <code>historyId</code> (resumable, idempotent).</p>
+<h3>(b) Mermaid flowchart</h3>
+<div class="mermaid">
+flowchart TD
+  client[Clients: web / mobile / IMAP] -->|send / read / search| gw[API Gateway authN/Z, route by user_id]
+  client <-->|push / delta sync| syncgw[Sync / Push gateway]
+  client -->|attachment download| cdn[CDN / Edge]
+
+  gw --> send[Send service - accept fast 202]
+  gw --> read[Mailbox / Read service]
+  gw --> search[Search service]
+  gw --> att[Attachment service]
+
+  send -->|enqueue| q[[Delivery Queue - Kafka]]
+  q --> dw[Delivery workers: filters + spam score]
+  dw -. async, out of scope .-> spam[Spam scoring ML]
+  dw --> mbox[(Mailbox store - sharded by user_id)]
+  send --> mbox
+
+  read --> mbox
+  mbox -->|bump historyId + change event| syncgw
+  mbox -->|index job| iq[[Index queue]]
+  iq --> idx[Indexer workers]
+  idx --> inv[(Per-user inverted index - sharded by user_id)]
+  search --> inv
+  att --> blob[(Blob store - erasure-coded, dedup by hash)]
+  blob --> cdn
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<ul>
+<li><strong>Mailbox store (per-user, sharded by <code>user_id</code>) — wide-row / LSM KV (Bigtable/Cassandra-class).</strong> Row key <code>user_id</code>; columns/sub-rows for messages, thread membership, labels, flags, and a monotonically increasing <code>historyId</code>. Why: email is append-heavy on delivery and read-heavy on access; an LSM gives cheap sequential writes and good scans of recent mail, and co-locating everything for a user under one key kills cross-shard fan-out. SQL doesn't shard to EB cleanly and would force joins across the fleet.</li>
+<li><code>messages</code>: <code>{messageId, threadId, headers(from,to,subject,date), bodyRef, size, flags, labels[], spamScore}</code></li>
+<li><code>threads</code>: <code>{threadId -&gt; ordered messageId[]}</code></li>
+<li><code>mailbox_meta</code>: <code>{historyId, quota, counters}</code></li>
+<li><strong>Inverted index (per-user, sharded by <code>user_id</code>) — search engine shards (Lucene-class).</strong> <code>term -&gt; postings(messageId, positions, field)</code> <em>scoped to one user</em>. Built <strong>async</strong> off the delivery event; near-real-time visibility (seconds). Per-user scoping means each search touches a single small index, not a global one — the key to fast, isolated search. Ranking: recency + field weighting (subject/from &gt; body) + relevance.</li>
+<li><strong>Attachments — blob/object store, erasure-coded, content-addressed.</strong> Store by <code>hash(content)</code> so the same file mailed to many recipients is <strong>stored once (dedup)</strong> and each mailbox holds a reference + ACL. Erasure coding (~1.4× overhead) instead of 3× replication since blobs are immutable and huge. Served via CDN with signed, expiring URLs.</li>
+<li><strong>Why not store bodies in the mailbox row:</strong> large/variable bodies bloat the row store and hurt scans; keep small text inline, large bodies/attachments as <code>bodyRef</code> into blob storage.</li>
+</ul>
+<h2>8) Deep dive</h2>
+<h3>8a) Search indexing — per-user inverted index, built asynchronously</h3>
+<p>The crux of "Gmail-fast search." A global inverted index over all mail would make every query a massive fan-out + relevance merge across thousands of shards — too slow and impossible to isolate per user. Instead, <strong>partition the index by <code>user_id</code></strong>: each user's mail has its own inverted index living on the same shard as their mailbox. A search then hits <strong>one shard</strong>, so p99 is bounded by a single index lookup, and one heavy user can't slow another.</p>
+<ul>
+<li><strong>Pipeline:</strong> on delivery, the mailbox write emits an index job → <strong>indexer workers</strong> tokenize/normalize (lowercase, stem, strip stopwords selectively — but keep enough for phrase/operator search), then update that user's postings. This is <strong>async</strong>, so it never blocks delivery; visibility lag is seconds (acceptable — you rarely search for an email the instant it lands).</li>
+<li><strong>Index structure:</strong> <code>term -&gt; [postings]</code> where a posting is <code>{messageId, field, positions}</code>; positions enable phrase queries; per-field postings enable <code>from:</code>/<code>subject:</code> operators. Segments are immutable and <strong>merged</strong> in the background (LSM-like compaction for the index).</li>
+<li><strong>Ranking:</strong> combine recency (email is time-dominant), field weights, and term frequency; default sort is usually reverse-chronological with relevance as a tiebreaker.</li>
+<li><strong>Consistency note:</strong> index is eventually consistent vs the mailbox; the mailbox itself is the source of truth, so a just-arrived message is <em>readable</em> immediately even if not yet <em>searchable</em>.</li>
+</ul>
+<h3>8b) Threading — grouping a conversation correctly</h3>
+<p>Email threading is non-trivial because clients are inconsistent. Use a layered approach:
+- <strong>Primary signal:</strong> RFC <code>Message-ID</code>, <code>In-Reply-To</code>, and <code>References</code> headers form a reply DAG — link a new message to its parent thread by walking <code>References</code>.
+- <strong>Fallback heuristics</strong> (for clients that drop headers): normalized subject (strip <code>Re:</code>/<code>Fwd:</code> and locale prefixes) + participant set + time proximity.
+- <strong>Storage:</strong> maintain <code>threadId -&gt; ordered messageId[]</code> in the mailbox row; on delivery, resolve the thread (header lookup, then heuristic) and append. Threading is <strong>per-mailbox</strong> (your view of the thread), so it's computed on the recipient's shard — another win from sharding by user.</p>
+<h3>8c) Push / sync — the historyId delta model (IMAP-like, modernized)</h3>
+<p>Polling billions of mailboxes is wasteful; instead each mailbox has a <strong>monotonic <code>historyId</code></strong> bumped on every change (new message, flag change, label, delete). Devices hold a connection to a <strong>sync gateway</strong> and remember the last <code>historyId</code> they applied. On change, the gateway pushes only the <strong>delta since that id</strong>; on reconnect, the device requests <code>changes &gt;= storedHistoryId</code> and replays — <strong>idempotent and resumable</strong>, so flaky mobile networks converge correctly. This is the same contract IMAP's <code>MODSEQ</code>/<code>CONDSTORE</code> provides; an <strong>IMAP gateway</strong> translates legacy clients onto it. For devices that are offline, changes are simply the gap they replay on next connect (the mailbox store <em>is</em> the durable offline queue).</p>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Option A</th>
+<th>Option B</th>
+<th>Choice &amp; why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Partition key</td>
+<td>By <code>user_id</code> (mailbox + index co-located)</td>
+<td>By message / global index</td>
+<td><strong>By <code>user_id</code></strong> — single-shard reads &amp; search, perfect isolation; cross-user delivery handled async</td>
+</tr>
+<tr>
+<td>Send semantics</td>
+<td>Async accept-then-deliver</td>
+<td>Synchronous end-to-end</td>
+<td><strong>Async</strong> — fast accept, absorbs spikes, retries; per-mailbox read-your-writes preserved</td>
+</tr>
+<tr>
+<td>Search index scope</td>
+<td>Per-user index</td>
+<td>Global inverted index</td>
+<td><strong>Per-user</strong> — bounded query cost, no fleet fan-out, tenant isolation</td>
+</tr>
+<tr>
+<td>Index freshness</td>
+<td>Async (eventual, seconds)</td>
+<td>Sync on write</td>
+<td><strong>Async</strong> — never block delivery; mailbox is source of truth for immediate reads</td>
+</tr>
+<tr>
+<td>Attachment storage</td>
+<td>Blob + dedup + erasure coding</td>
+<td>Inline in mailbox row</td>
+<td><strong>Blob, content-addressed</strong> — dedup the same file across recipients, 1.4× not 3×</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td>Strong per-mailbox / eventual cross-mailbox</td>
+<td>Globally strong</td>
+<td><strong>Mixed</strong> — correctness where the user notices, eventual where they don't</td>
+</tr>
+<tr>
+<td>Sync</td>
+<td>historyId delta push</td>
+<td>Full periodic poll</td>
+<td><strong>Delta push</strong> — scales to billions of mailboxes, resumable on reconnect</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Hot mailbox (mailing list / celebrity):</strong> a list address receiving millions/day overloads one shard. Mitigate: split high-volume addresses into sub-shards, or treat list traffic via a fan-out service; cache hot reads.</li>
+<li><strong>Indexer lag / backlog:</strong> a delivery burst backs up the index queue → search shows stale results. Mitigate: autoscale indexers off queue depth, prioritize recent mail, surface "search may be a few seconds behind." Mailbox stays correct regardless.</li>
+<li><strong>Delivery queue backpressure:</strong> spam storms or a downstream-store slowdown back up Kafka. Mitigate: partitioned topics by recipient shard, dead-letter + retry with backoff, shed/deprioritize bulk senders.</li>
+<li><strong>Attachment thundering herd:</strong> a viral attachment (everyone opens it at once) hammers the blob store. Mitigate: CDN caching of the content-addressed blob (one cache fill serves all), signed URLs.</li>
+<li><strong>Sync gateway connection storm:</strong> a regional reconnect (deploy/restart) reconnects millions of devices at once. Mitigate: connection draining, jittered reconnect backoff, gateways stateless behind a registry so any node can resume from <code>historyId</code>.</li>
+<li><strong>Mailbox-store hot partition on writes:</strong> delivery write amplification (filters + index + sync events). Mitigate: batch writes, async the index/sync emission, provision LSM compaction headroom.</li>
+<li><strong>Spam stage as a soft SPOF:</strong> if the (out-of-scope) scorer is down, don't block mail. Mitigate: time-box the call, fail-open to "unscored/deliver-to-spam-later," reconcile asynchronously.</li>
+<li><strong>Cross-region failover &amp; residency:</strong> user's home region down. Mitigate: async-replicate mailboxes to a secondary region; honor data-residency by pinning the home region and replicating only where allowed.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>Volume 10×:</strong> sharding by <code>user_id</code> scales horizontally — add shards and rebalance via consistent hashing; the per-user model means no query gets more expensive as the fleet grows.</li>
+<li><strong>Cold storage tiering:</strong> most mail is never reopened — tier old messages/attachments to cheaper, colder, more-compressed storage (hot NVMe → warm SSD → cold object/erasure-coded archive), keeping only recent mail hot. This is where the EB-scale cost is actually controlled.</li>
+<li><strong>Index cost:</strong> per-user indexes grow with mail; merge/compact aggressively, tier cold-segment indexes, and consider lazy/partial indexing of very old mail (index-on-first-search).</li>
+<li><strong>Multi-region active-active:</strong> as users go global, replicate mailboxes across regions with async cross-region sync and region-local reads; resolve cross-region flag conflicts via <code>historyId</code>/timestamps.</li>
+<li><strong>Smarter features:</strong> smart-compose, priority inbox, and semantic search bolt on as additional async consumers of the same delivery event — they don't touch the core read path (clean extension point).</li>
+<li><strong>What breaks first:</strong> the <strong>index pipeline</strong> under bursty load and <strong>cold-storage cost</strong> — both addressed by async autoscaling + tiering rather than re-architecting the core.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"Why shard by user_id and not by message?"</strong> A mailbox, its index, its threads, and its sync state are always accessed <em>together for one user</em>; co-locating them makes every read/search a single-shard op with perfect tenant isolation. Message-level sharding would scatter a user's mail and force fan-out on every list/search.</li>
+<li><strong>"How is send fast if delivery is heavy?"</strong> Accept-then-deliver: write to Sent (read-your-writes), enqueue, return 202; workers do filters/spam/fan-out off the hot path with retries. The user never waits on delivery.</li>
+<li><strong>"How does search stay fast over 20 K messages?"</strong> The query hits one per-user inverted index, not a global one; recency-weighted ranking; immutable segments merged in the background. Bounded by a single index lookup.</li>
+<li><strong>"Real-time sync across devices — how, exactly?"</strong> Per-mailbox monotonic <code>historyId</code>; gateway pushes deltas since the device's last id; reconnect replays from the stored id — idempotent, resumable, no polling.</li>
+<li><strong>"How do you thread reliably when headers are missing?"</strong> Primary on <code>References</code>/<code>In-Reply-To</code>; fallback to normalized-subject + participants + time window; thread state stored per-mailbox.</li>
+<li><strong>"Same 10 MB attachment to 500 people — storage?"</strong> Content-addressed blob: store once by <code>hash(content)</code>, each mailbox holds a reference + ACL; erasure-coded, served via CDN.</li>
+<li><strong>"What if the spam service is down?"</strong> Time-box and fail-open — never block legitimate mail; score asynchronously and reclassify later. Spam pipeline is explicitly out of scope as a model.</li>
+<li><strong>"Consistency model?"</strong> Strong/read-your-writes <em>within a mailbox</em> (your sends, reads, flags); eventual <em>across mailboxes</em> (delivery in seconds) and for the search index. Mailbox store is the source of truth for immediate reads.</li>
+<li><strong>"How do you keep p99 inbox-open low?"</strong> Single-shard read, recent mail in cache/memtable, headers separated from bodies, attachments off-path via CDN.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Phase</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–6 min</td>
+<td>Clarify</td>
+<td>Scope core mailbox+search+threading+sync; defer SMTP edge &amp; spam model. State <strong>shard by user_id</strong>, async send, strong-per-mailbox consistency.</td>
+</tr>
+<tr>
+<td>6–10 min</td>
+<td>FR / NFR</td>
+<td>send/receive/read/list/search/thread/sync/attachments; p99&lt;200 ms read, send-accept&lt;100 ms, 11 nines durability.</td>
+</tr>
+<tr>
+<td>10–14 min</td>
+<td>Estimation</td>
+<td>1.5 B users, ~3e13 msgs, EB-scale tiered, ~520 K sends/s avg, search QPS, push connections.</td>
+</tr>
+<tr>
+<td>14–20 min</td>
+<td>High-level + API</td>
+<td>Draw async delivery pipeline + per-user mailbox + per-user index + sync gateway + blob/CDN. Walk send vs read/search vs sync.</td>
+</tr>
+<tr>
+<td>20–38 min</td>
+<td>Deep dives</td>
+<td>(1) Per-user inverted index built async, (2) threading via headers+heuristics, (3) historyId delta push/sync (IMAP-like).</td>
+</tr>
+<tr>
+<td>38–46 min</td>
+<td>Tradeoffs</td>
+<td>Shard key, async send, per-user vs global index, attachment dedup/erasure coding, mixed consistency.</td>
+</tr>
+<tr>
+<td>46–54 min</td>
+<td>Failure &amp; bottlenecks</td>
+<td>Hot mailbox, indexer lag, queue backpressure, attachment herd, sync reconnect storm — each with a fix.</td>
+</tr>
+<tr>
+<td>54–60 min</td>
+<td>10x / wrap</td>
+<td>Cold-storage tiering (the cost lever), multi-region async, index compaction. Restate <strong>shard-by-user_id</strong> as the headline.</td>
+</tr>
+</tbody>
+</table></article></div></body></html>

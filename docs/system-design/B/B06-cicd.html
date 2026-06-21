@@ -1,0 +1,417 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>B06 — Design a CI/CD / build system at scale</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="../index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="../index.html">&larr; All system-design questions</a><article class="doc"><h1>B06 — Design a CI/CD / build system at scale</h1>
+<p>Design the build + continuous-integration system that thousands of engineers push to all day: it must turn a commit into built artifacts and test results fast, reliably, and cheaply, even on a giant monorepo. It tests core Developer-Experience platform work — a build graph + dependency model, <strong>incremental builds</strong>, a <strong>remote build cache</strong>, distributed executors, an artifact store, queueing, and flaky-test handling. Google asks it because this is literally how Google ships software (Blaze/Bazel + remote execution + result cache); getting it right makes every engineer faster, so it's a pure Staff-platform problem.</p>
+<h2>(Section B only) Lead with this — your résumé hook</h2>
+<p>"I've built CI/CD in production — Dockerized builds, GitHub Actions pipelines, deploying to ECS — so I've felt the failure modes first-hand: 40-minute pipelines that rebuild everything, flaky tests that erode trust in the signal, and cache misses that cost real money on every PR. I'll design this from the primitive that fixes all three at once — a <strong>content-addressed build graph with a shared remote cache and remote execution</strong> — so that the unit of work is a single deterministic action, identical work is never repeated across engineers, and the system scales by adding stateless executors. I'll spend my depth budget on the cache + execution layer and on flaky-test handling, because those are where DevEx is won or lost."</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>Repo model:</strong> Monorepo or many polyrepos? A monorepo demands fine-grained dependency tracking and a shared cache; polyrepos push more weight onto artifact versioning. (I'll assume <strong>monorepo</strong> — that's the hard, Google-shaped version.)</li>
+<li><strong>Languages / build tools:</strong> One ecosystem or many (Java, Go, C++, JS, Python)? This sets whether I can mandate a hermetic build tool (Bazel-style) or must wrap heterogeneous toolchains.</li>
+<li><strong>Scale:</strong> How many engineers, commits/day, and CI runs/day? Average vs p99 build time today? This drives executor fleet sizing and cache hit-rate targets.</li>
+<li><strong>Trigger model:</strong> Per-PR (presubmit), per-merge (postsubmit), nightly, on-demand? Presubmit latency is the DevEx-critical one (engineer is blocked, watching).</li>
+<li><strong>Latency / SLO:</strong> What's the target for a presubmit "did my change break anything" signal — minutes? This is the number the whole design optimizes.</li>
+<li><strong>Hermeticity:</strong> Can we <em>enforce</em> deterministic, sandboxed builds (no network, declared inputs)? Caching correctness depends entirely on this. If not, what's the migration path?</li>
+<li><strong>Test taxonomy:</strong> Unit vs integration vs end-to-end? E2E and tests needing real services change isolation and flakiness handling dramatically.</li>
+<li><strong>Artifact lifetime &amp; compliance:</strong> How long must artifacts/logs be retained? Any provenance/supply-chain (SLSA) or audit requirements?</li>
+<li><strong>Cost sensitivity:</strong> Is the goal latency at any cost, or cost-efficiency too? Affects how aggressively we cache, dedup, and right-size executors.</li>
+<li><strong>Multi-region / org:</strong> One region or global engineering org? Cache locality and executor placement become a thing at global scale.</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> They want to see that you reach for an <strong>incremental, content-addressed build graph + shared cache + remote execution</strong> instead of "spin a VM and run <code>make</code> from scratch." The hermeticity question is the tell — if you ask it, you understand that <strong>caching correctness is a build-determinism problem</strong>, not a cache-eviction problem. Asking about presubmit latency and flaky tests signals you've actually operated CI and know where engineer trust comes from.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In scope:</strong>
+- A <strong>build graph / dependency model</strong>: targets with declared inputs/outputs and edges; compute exactly what a change affects.
+- <strong>Incremental builds:</strong> rebuild and retest only what's transitively affected by a change.
+- <strong>Remote build cache:</strong> content-addressed; reuse outputs across engineers and machines (never rebuild identical work).
+- <strong>Distributed remote execution:</strong> run build/test actions on a stateless executor fleet, not the dev laptop.
+- <strong>Artifact store:</strong> versioned, content-addressed storage for binaries/images with provenance.
+- <strong>Queueing &amp; scheduling:</strong> admit, prioritize, and dispatch action graphs across executors with backpressure.
+- <strong>Flaky-test handling:</strong> detect, quarantine, and retry non-deterministic tests so they don't block merges or rot the signal.
+- <strong>Test result + log storage</strong> and a UI/API for engineers to see status fast.
+- <strong>Scale to thousands of engineers</strong> with high concurrency.</p>
+<p><strong>Out of scope (defer):</strong>
+- CD release orchestration beyond producing a deployable artifact (canary/rollout is a separate system; I'll note the handoff).
+- Source control internals (assume a Git host / monorepo VCS exists).
+- IDE / local dev-loop tooling (though the same cache benefits it).
+- Code review and merge-queue <em>policy</em> (I'll integrate with a merge queue but not design it fully).
+- Secrets management internals (assume a vault exists).</p>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>~10,000 engineers; ~100k commits/day; ~500k CI runs/day; bursty (push spikes around standups / pre-deploy). Monorepo with millions of targets.</td>
+</tr>
+<tr>
+<td>p99 latency</td>
+<td><strong>Presubmit signal ≤ ~10 min p95</strong> for a typical change (the blocking, DevEx-critical path). Full builds amortized by cache to seconds-to-minutes for warm graphs.</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td><strong>99.9%+</strong> for the cache + execution control plane. CI down = the whole org is blocked, so this is a Tier-1 service.</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td><strong>Cache must be correct (never serve a wrong output)</strong> — strong correctness via content-addressing. Cache <em>availability</em> can be eventual (a miss is safe, just slower). Build graph metadata strongly consistent within a commit.</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>Artifacts + provenance: <strong>durable</strong> (releases, rollbacks, audits depend on them). Cache: <strong>best-effort</strong> (rebuildable, evict freely). Logs/results: durable for a retention window.</td>
+</tr>
+<tr>
+<td>Throughput</td>
+<td>Executor fleet must absorb push bursts; target high utilization without long queue times.</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>Hermetic sandboxes (no ambient network/filesystem), per-action isolation, signed provenance (SLSA-style), authZ on cache writes to prevent poisoning.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>ENGINEERS &amp; RUNS
+  Engineers                    ~10,000
+  CI runs/day                  ~500,000  (presubmit + postsubmit + retries)
+  ~ 500k / 86400               ~6 runs/sec average ; peak burst x10 -&gt; ~60/sec
+  Actions per run (graph)      ~1,000 build/test actions (typical change)
+  Action executions/day        500k * 1,000 = ~5e8 logical actions
+    BUT cache hit rate ~90%+  -&gt; only ~5e7 actually EXECUTED/day
+    ~ 5e7 / 86400              ~580 executed actions/sec average
+    peak x5                    ~3,000 concurrent action executions
+
+EXECUTOR FLEET
+  Avg action wall-time         ~10 s (mix of fast compiles + slow tests)
+  Concurrency needed (peak)    ~3,000 actions * (10s service) -&gt; a few thousand cores
+  At ~16 actions/host          ~200-400 executor hosts at peak (autoscaled down off-peak)
+
+REMOTE CACHE (Content-Addressed Store, CAS)
+  Distinct action outputs/day  ~5e7 (mostly cache HITS reusing existing)
+  New blobs/day                ~5e6 * avg 1 MB = ~5 TB/day written
+  Retain 30 days (hot)         ~150 TB hot CAS  (LRU evicted, rebuildable)
+  Action-result metadata       ~5e8/day * ~1 KB = small, in a fast KV (TTL'd)
+
+ARTIFACT STORE (durable releases)
+  Release artifacts/day        ~10,000 builds * ~200 MB = ~2 TB/day
+  Retain 1 yr                  ~700 TB durable blob (dedup brings it down a lot)
+
+CACHE HIT ECONOMICS
+  Without cache: 5e8 actions/day executed -&gt; impossible fleet
+  With 90% hit:  5e7 executed -&gt; 10x smaller fleet, 10x faster, 10x cheaper.
+  =&gt; the remote cache IS the design.
+</code></pre>
+<p>The headline: the <strong>cache hit rate is the single most important number</strong> — at 90% it shrinks the executor fleet and presubmit latency by an order of magnitude. Storage is dominated by the durable artifact store; the cache is large but freely evictable.</p>
+<h2>5) API design</h2>
+<pre><code># Build invocation (from CI trigger or dev machine)
+POST /v1/build
+  { repo, commit_sha, targets:[...], mode: &quot;presubmit&quot;|&quot;postsubmit&quot;,
+    priority, requester }
+  -&gt; { build_id, action_graph_ref }     # returns a DAG of actions
+
+# Remote Execution (executor &lt;-&gt; control plane), content-addressed
+POST /v2/actions:execute
+  { action_digest }                     # hash(command + input tree + env + platform)
+  -&gt; 200 { result: CACHED, output_digests, stdout_digest, exit=0 }   # cache HIT
+  -&gt; 202 { queued, lease }              # cache MISS -&gt; scheduled to an executor
+
+# Content-Addressed Store (CAS) — blobs keyed by their own hash
+GET    /cas/{sha256}                    # fetch input/output blob
+POST   /cas/{sha256}    (body)          # upload blob (idempotent; key = content)
+POST   /cas:findMissingBlobs { digests } -&gt; { missing:[...] }   # batch existence
+
+# Action Cache (ActionDigest -&gt; ActionResult)
+GET    /ac/{action_digest}              # was this exact action already run?
+PUT    /ac/{action_digest} { result }   # authZ'd write (prevent poisoning)
+
+# Test results / flakiness
+GET    /v1/build/{build_id}/results
+POST   /v1/tests/{test_id}/quarantine   { reason }
+
+# Artifacts
+PUT    /v1/artifacts { build_id, blob_digest, provenance }   # signed
+GET    /v1/artifacts/{name}@{version}
+</code></pre>
+<p>Design notes: the core protocol is <strong>content-addressed</strong> (Bazel Remote Execution API shape). Cache keys are <em>digests of fully-declared inputs</em> — that's what makes a hit safe. CAS uploads are idempotent (key = content hash). Action-cache writes are authZ'd to prevent <strong>cache poisoning</strong>.</p>
+<h2>6) Architecture — request &amp; data flow</h2>
+<h3>(a) ASCII layered diagram</h3>
+<pre><code>        Engineers / CI triggers (push, PR, merge-queue, nightly)
+                              |  POST /v1/build (commit, targets)
+                              v
+                    [ API Gateway / Build Frontend ]      authN, rate-limit,
+                    - resolve targets for this commit     dedupe identical builds
+                              |
+                              v
+                    [ Graph Service ]                     loads BUILD files,
+                    - compute affected targets            builds the action DAG,
+                    - diff vs base -&gt; minimal rebuild set  assigns ACTION DIGESTS
+                              |  action graph (DAG of digests)
+                              v
+                    [ Scheduler / Queue ]                 priority lanes
+                    - presubmit &gt; postsubmit &gt; nightly    (blocked engineer first),
+                    - admission control / backpressure    topological dispatch
+                       |                          ^
+        for each action|                          | results / leases
+                       v                          |
+              +-----------------+                 |
+              | Action Cache    |  HIT (~90%)      |
+              | (ActionDigest-&gt; |-----------------+--&gt; skip execution, return outputs
+              |  ActionResult)  |
+              +--------+--------+
+                       | MISS
+                       v
+              [ Executor Fleet (stateless, sandboxed) ]   &lt;--- autoscaled workers
+              - fetch inputs from CAS by digest           hermetic: no net, declared
+              - run action in sandbox                     inputs only
+              - upload outputs to CAS, write ActionResult
+                  |        ^                         |
+        fetch     |        | upload outputs          | test events
+        inputs    v        |                         v
+              [ Content-Addressed Store (CAS) ]   [ Test/Result Service ]
+              - blob store keyed by sha256        - store logs, pass/fail
+              - dedup across ALL engineers        - flaky detection + quarantine
+                  |                                     |
+                  | promote release outputs            v
+                  v                              [ Flaky DB / Quarantine list ]
+              [ Artifact Store (durable) ]
+              - versioned binaries / images
+              - signed provenance (SLSA)  --&gt; [ CD / Deploy system ] (handoff)
+
+        Cross-cutting:
+        [ Metadata DB ] build graph + build state (strongly consistent per commit)
+        [ Observability ] queue depth, cache hit rate, p99 build time, flake rate
+</code></pre>
+<p><strong>Write/build path (the main flow).</strong> An engineer pushes a PR; the <strong>Build Frontend</strong> dedupes (identical commit+targets already running? join it) and hands the commit to the <strong>Graph Service</strong>, which loads the BUILD definitions, computes the <strong>transitive affected target set</strong> by diffing against the base, and emits a <strong>DAG of actions</strong>, each stamped with an <strong>action digest</strong> = hash(command + input file tree + env + platform). The <strong>scheduler</strong> walks the DAG topologically, and for every action first consults the <strong>Action Cache</strong>: if some engineer (or a prior run) already executed this exact digest, it's a <strong>hit</strong> (~90%) and we reuse the cached outputs with zero execution. On a <strong>miss</strong>, the action is queued to the <strong>executor fleet</strong>; an executor fetches the declared inputs from the <strong>CAS</strong> by digest, runs the action in a <strong>hermetic sandbox</strong>, uploads outputs back to the CAS, and writes the <code>ActionResult</code> to the Action Cache so the <em>next</em> engineer hits it for free. Release-worthy outputs are promoted into the durable <strong>Artifact Store</strong> with signed provenance and handed to the CD system.</p>
+<p><strong>Read path (status + cache).</strong> Engineers poll <code>/build/{id}/results</code>; the <strong>Test/Result Service</strong> streams pass/fail and logs. Cache reads (Action Cache lookups and CAS fetches) are content-addressed point lookups — the hot path that the whole system's speed depends on. Flaky-test signals flow async into the <strong>Flaky DB</strong>, which the scheduler consults to auto-retry/quarantine without blocking the merge.</p>
+<p><strong>Why content-addressing makes it correct.</strong> Because an action's key includes <em>all</em> declared inputs and the exact command/env/platform, a cache hit is provably the same computation — so sharing outputs across thousands of engineers is safe. Hermetic sandboxing (no network, no undeclared files) is what guarantees the declared inputs are the <em>only</em> inputs; without it, the cache would silently serve wrong results.</p>
+<h3>(b) Mermaid flowchart</h3>
+<div class="mermaid">
+flowchart TD
+  dev[Engineers / CI triggers] --> fe[Build Frontend: authN + dedupe]
+  fe --> graph[Graph Service: affected targets -> action DAG]
+  graph --> sched[Scheduler / Priority Queue]
+  sched --> ac{Action Cache hit?}
+  ac -- hit ~90% --> outputs[Reuse cached outputs]
+  ac -- miss --> exec[Executor Fleet - hermetic sandbox]
+  exec -- fetch inputs by digest --> cas[(Content-Addressed Store)]
+  exec -- upload outputs --> cas
+  exec -- write ActionResult --> ac
+  exec --> results[Test/Result Service]
+  results --> flaky[(Flaky DB / Quarantine)]
+  flaky -. retry/quarantine .-> sched
+  cas -- promote release --> artifacts[(Artifact Store - durable + provenance)]
+  artifacts --> cd[CD / Deploy system]
+  sched --- meta[(Metadata DB: graph + build state)]
+
+  subgraph OBS [Observability]
+    m1[queue depth] --- m2[cache hit rate] --- m3[p99 build time] --- m4[flake rate]
+  end
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<p><strong>Build graph / metadata.</strong></p>
+<pre><code>Target { label, rule_type, srcs[], deps[], outs[], visibility }
+Action { action_digest, command, input_root_digest, platform, env,
+         output_paths[] }       # digest = sha256 of the whole tuple
+Build  { build_id, commit_sha, root_targets[], state, started_at, requester }
+</code></pre>
+<p>Stored in a <strong>strongly-consistent relational/metadata store</strong> (the graph for one commit must be internally consistent; you can't half-resolve a DAG). The graph is large but structured and queried by relationship — SQL or a graph-aware store fits.</p>
+<p><strong>Action Cache: <code>action_digest -&gt; ActionResult</code>.</strong> A <strong>fast KV store</strong> (LSM-tree backed) keyed by the action digest, holding output digests + exit code + stdout/stderr digests. Reads dominate massively and must be sub-millisecond; entries are TTL'd and rebuildable, so an LSM store optimized for high write/read throughput is ideal. Writes are authZ'd (poisoning defense).</p>
+<p><strong>Content-Addressed Store (CAS): <code>sha256(blob) -&gt; bytes</code>.</strong> A <strong>blob store</strong> keyed by content hash. Content-addressing gives free <strong>dedup across all engineers</strong> (identical source files / compiler outputs stored once) and trivially safe caching (the key <em>is</em> the integrity check). Hot tier on SSD/object store with an LRU/LFU eviction; it's fully rebuildable so durability isn't required — availability and locality are.</p>
+<p><strong>Artifact Store (durable).</strong> Versioned, content-addressed <strong>object storage</strong> for release binaries/images plus <strong>signed provenance</strong> (what inputs/commit/builder produced this). This one <em>is</em> durable and retained for a year+ because rollbacks, audits, and supply-chain (SLSA) depend on it.</p>
+<p><strong>Test results &amp; logs.</strong> Logs are large, append-only, write-once → <strong>blob/object storage</strong> with a metadata index (build_id, test_id, status) in a queryable store for the UI. Retained for a window then tiered to cold storage.</p>
+<p><strong>Flaky DB.</strong> Per-test pass/fail history and quarantine state in a KV/time-series store; the flake detector reads it to compute non-determinism rates.</p>
+<p>Justification theme: <strong>content-addressing is the backbone</strong> — it gives correctness (key = integrity), dedup (store once), and cache-shareability (safe across engineers) for free, which is exactly why Google's build system is built this way.</p>
+<h2>8) Deep dive</h2>
+<h3>Deep dive 1: Remote cache + remote execution (the crux)</h3>
+<p>This is the component that turns a 40-minute build into seconds, and it's where I'd spend the most time.</p>
+<ul>
+<li><strong>Cache key = action digest = hash(command + input tree + env + platform).</strong> Two builds anywhere in the org that produce the same digest <em>are</em> the same computation, so the result is shareable. This is why <strong>hermeticity is non-negotiable</strong>: the sandbox must guarantee no undeclared inputs (no ambient network, no reading system paths), otherwise two "identical" actions could differ and the cache serves a wrong output — the worst possible failure in a build system.</li>
+<li><strong>Two-level cache:</strong> the <strong>Action Cache</strong> (digest → result metadata) answers "do I even need to run this?"; the <strong>CAS</strong> (content hash → bytes) stores the actual input/output blobs. A hit on the Action Cache means we fetch outputs from CAS and skip execution entirely.</li>
+<li><strong>Remote execution flow on a miss:</strong> scheduler dispatches the action; executor calls <code>findMissingBlobs</code> to fetch only the inputs it doesn't already have locally, runs in the sandbox, uploads outputs, writes the ActionResult. Executors are <strong>stateless</strong> — they hold no build state, so the fleet autoscales freely and a dead executor just means the action is re-leased elsewhere.</li>
+<li><strong>Cache poisoning defense:</strong> writes to the Action Cache are authZ'd to trusted executors only; untrusted (e.g. PR) builds can <em>read</em> the shared cache but write to a separate, untrusted namespace, so a malicious PR can't inject a bad output that a teammate then trusts.</li>
+<li><strong>Locality at scale:</strong> CAS is replicated per region with a global fallback; executors prefer the local CAS replica to keep input-fetch latency low. A "build event" stream lets the UI show live progress.</li>
+<li><strong>Why this fixes my résumé pain:</strong> the GitHub-Actions pipelines I built re-ran work per-PR with no cross-engineer sharing; content-addressed remote cache + execution is exactly the primitive that eliminates that waste.</li>
+</ul>
+<h3>Deep dive 2: Flaky-test handling (where DevEx trust is won/lost)</h3>
+<p>A flaky test — one that passes and fails non-deterministically on the same code — is poison: it blocks merges, trains engineers to blindly retry (so real failures get ignored), and destroys trust in the signal. Handling it well is a Staff-level DevEx differentiator.</p>
+<ul>
+<li><strong>Detection:</strong> for each test, track pass/fail history keyed by <em>commit digest</em>. If the <strong>same action digest</strong> (identical inputs) produces different results across runs, it is <strong>provably flaky</strong> — content-addressing gives us this for free (same inputs should = same result). Compute a per-test flake rate.</li>
+<li><strong>Automatic retries with caution:</strong> retry a failed test a bounded number of times; if it then passes, mark the run as flaky-but-green rather than failing the engineer's PR — but <em>record</em> the flake so it's visible, never silently swallowed.</li>
+<li><strong>Quarantine:</strong> tests above a flake threshold are auto-moved to a <strong>quarantine list</strong> — they still run (for data) but no longer block merges, and the owning team gets a ticket. This unblocks the org immediately while keeping the test owner accountable.</li>
+<li><strong>Root-cause aids:</strong> capture full sandbox logs, timing, and resource contention on failure; flag tests that depend on wall-clock, network, ordering, or shared state. Hermetic sandboxing dramatically <em>reduces</em> flakiness by removing ambient nondeterminism in the first place — the same property that makes caching correct.</li>
+<li><strong>Don't let retries hide real breakage:</strong> a test that fails <em>deterministically</em> on a given digest (same inputs, always fails) is a real failure and must block — distinguish "flaky" (varies on identical inputs) from "broken" (consistent on identical inputs). That distinction is only possible <em>because</em> of content-addressing.</li>
+</ul>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Option A</th>
+<th>Option B</th>
+<th>Choice &amp; why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Build model</td>
+<td>Rebuild everything per run</td>
+<td><strong>Incremental on a content-addressed graph</strong></td>
+<td><strong>Incremental.</strong> Only affected actions run; everything else is a cache hit. The whole 10x latency/cost win. Cost: requires hermetic, fully-declared builds.</td>
+</tr>
+<tr>
+<td>Cache correctness</td>
+<td>Trust timestamps/heuristics</td>
+<td><strong>Content-addressed (digest of inputs)</strong></td>
+<td><strong>Content-addressed.</strong> Key = integrity; sharing across engineers is provably safe. Cost: builds must be deterministic + sandboxed.</td>
+</tr>
+<tr>
+<td>Executors</td>
+<td>Stateful build machines</td>
+<td><strong>Stateless sandboxed executors</strong></td>
+<td><strong>Stateless.</strong> Autoscale freely, re-lease on failure, no sticky state. Cost: every input fetched from CAS (mitigated by locality + dedup).</td>
+</tr>
+<tr>
+<td>Cache consistency</td>
+<td>Strongly consistent, HA cache</td>
+<td><strong>Correct-but-best-effort-available</strong></td>
+<td><strong>Best-effort availability.</strong> A miss is <em>safe</em> (just re-execute), so optimize the cache for speed/locality, not for never-missing. Correctness is strong; availability is eventual.</td>
+</tr>
+<tr>
+<td>Presubmit vs postsubmit</td>
+<td>One queue</td>
+<td><strong>Priority lanes (blocked engineer first)</strong></td>
+<td><strong>Priority lanes.</strong> Presubmit blocks a human and must jump the queue; nightly can wait. Cost: scheduler complexity + starvation guards.</td>
+</tr>
+<tr>
+<td>Flaky tests</td>
+<td>Always block on red</td>
+<td><strong>Retry + quarantine with visibility</strong></td>
+<td><strong>Retry + quarantine.</strong> Unblocks the org without hiding failures; distinguishes flaky (varies on same digest) from broken (consistent). Cost: must never silently swallow a real failure.</td>
+</tr>
+<tr>
+<td>Artifact storage</td>
+<td>Durable for everything</td>
+<td><strong>Durable artifacts, evictable cache</strong></td>
+<td><strong>Split.</strong> Releases/provenance durable (rollbacks/audits); cache rebuildable, evict freely. Right-sizes cost.</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Cache stampede on a fresh commit / cold cache (e.g. a base-library change invalidates everything).</strong> A change deep in the graph can invalidate millions of downstream digests, causing a thundering herd of executions. <em>Mitigation:</em> request collapsing / single-flight per action digest (only one executor builds a given digest, others wait on it); gradual base-change rollout; prioritize presubmit so blocked engineers still progress.</li>
+<li><strong>Executor fleet saturation during push bursts.</strong> Queue depth spikes at standup/pre-deploy. <em>Mitigation:</em> admission control + backpressure (reject/queue low-priority work first), autoscale on queue depth, and keep a warm pool. The cache hit rate is the real relief valve — at 90% the fleet only sees 10% of logical work.</li>
+<li><strong>Hot CAS blob / hot Action Cache key.</strong> A universally-depended-on artifact (the base toolchain) is fetched by every executor. <em>Mitigation:</em> replicate hot blobs, local executor caches, peer-to-peer/tree distribution of large common inputs.</li>
+<li><strong>Cache poisoning.</strong> A malicious or buggy build writes a wrong output others trust. <em>Mitigation:</em> authZ'd cache writes (trusted executors only), separate untrusted namespace for PR builds (read shared, write isolated), and integrity verified by content hash on every fetch.</li>
+<li><strong>Non-hermetic build silently corrupts the cache.</strong> The scariest failure: an action reads an undeclared input, so its digest doesn't capture reality and the cache serves wrong outputs. <em>Mitigation:</em> strict sandboxing (no network, declared inputs only), input-completeness checks, and periodic "cache vs cold-build" verification jobs that alarm on mismatch.</li>
+<li><strong>Metadata DB / scheduler SPOF.</strong> The control plane is Tier-1. <em>Mitigation:</em> HA replicas, leader election for the scheduler, and graceful degradation (executors can finish in-flight leases even if the frontend blips).</li>
+<li><strong>Flaky retries masking real breakage.</strong> <em>Mitigation:</em> only retry tests that vary on <em>identical</em> digests; deterministic failures always block (covered in deep dive).</li>
+<li><strong>Cascading failure from a bad toolchain rollout.</strong> A broken compiler image fails every build. <em>Mitigation:</em> canary the toolchain on a small target set, fast rollback, and version-pin toolchains as part of the action digest so the change is explicit and revertible.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>What breaks first: the executor fleet and CAS bandwidth.</strong> 10x engineers → 10x logical actions, but cache hits absorb most of it; the binding constraints become (a) CAS read bandwidth for hot common inputs and (b) raw executor capacity for the genuine 10% misses. Scale executors horizontally (they're stateless) and shard/replicate the CAS more aggressively with peer-to-peer distribution of big shared blobs.</li>
+<li><strong>Graph computation cost.</strong> On a giant monorepo, computing "what's affected" for every PR gets expensive. Evolve to <strong>incremental graph evaluation</strong> (cache the dependency graph, only recompute the changed subgraph) and finer-grained targets so a change invalidates less.</li>
+<li><strong>Cache hit rate is the lever, not fleet size.</strong> The highest-leverage scaling move is pushing hit rate from 90% → 95%+ (better target granularity, more determinism, longer cache retention) — that <em>halves</em> executions again. Invest there before buying machines.</li>
+<li><strong>Multi-region engineering org.</strong> Place executor pools and CAS replicas per region; route builds to the nearest pool; keep a global Action Cache so a result computed in one region is reused in another. Artifact store + provenance stay globally durable.</li>
+<li><strong>Merge-queue integration at scale.</strong> As commit rate rises, "test every PR against tip" becomes a bottleneck; introduce <strong>speculative/batched merge testing</strong> (test batches optimistically, bisect on failure) so CI throughput keeps up with merge rate.</li>
+<li><strong>Cost governance.</strong> At 10x, build cost is a real budget line; add per-team cost attribution, cache-efficiency dashboards, and policies that reward hermetic, cache-friendly targets — this is the "infra governance" Staff angle.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"How is your cache key computed and why is it safe to share across engineers?"</strong> Key = action digest = hash(command + full input tree + env + platform). Two identical digits <em>are</em> the same computation, so sharing is provably correct — provided builds are hermetic (no undeclared inputs).</li>
+<li><strong>"What if a build isn't deterministic?"</strong> Then the cache can serve wrong outputs — the worst failure. I enforce hermetic sandboxes (no network, declared inputs only) and run periodic cache-vs-cold-build verification that alarms on mismatch; non-hermetic targets are flagged and migrated.</li>
+<li><strong>"How do you do incremental builds — only rebuild what changed?"</strong> The Graph Service computes the transitive affected target set by diffing the change against the base; only those actions run, everything else is a cache hit. Fine-grained targets minimize the invalidated set.</li>
+<li><strong>"How do you handle flaky tests without either blocking everyone or hiding bugs?"</strong> Detect via differing results on <em>identical</em> digests, bounded retries, auto-quarantine above a threshold (still runs, no longer blocks, owner ticketed). Deterministic failures on a digest always block — that's a real bug, not flake.</li>
+<li><strong>"What happens on a cache miss vs hit, concretely?"</strong> Hit: Action Cache returns the result, fetch outputs from CAS, skip execution. Miss: schedule to an executor, fetch missing inputs from CAS, run in sandbox, upload outputs, write ActionResult so the next engineer hits.</li>
+<li><strong>"How do you stop cache poisoning from a malicious PR?"</strong> AuthZ'd cache writes (trusted executors only); PR/untrusted builds read the shared cache but write to an isolated namespace, and every fetch is integrity-checked by content hash.</li>
+<li><strong>"Presubmit is slow during peak — what do you do?"</strong> Priority lanes (presubmit jumps the queue), admission control / backpressure shedding low-priority work, autoscale on queue depth, warm pool. But the real fix is raising the cache hit rate so the fleet sees far less work.</li>
+<li><strong>"How do executors stay cheap and resilient?"</strong> Stateless + sandboxed: autoscale on demand, re-lease actions on failure, no sticky state. Inputs come from CAS (deduped, locality-optimized).</li>
+<li><strong>"How do you handle a change to a base library that everything depends on?"</strong> It invalidates a huge subgraph — expect a stampede. Single-flight per digest (build once, others wait), gradual rollout, prioritize blocked engineers, and lean on the warm executor pool.</li>
+<li><strong>"Where does provenance/supply-chain fit?"</strong> Release artifacts carry signed provenance (inputs, commit, builder) — SLSA-style — stored durably for audits and rollbacks; the cache itself is integrity-checked by content hash.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Phase</th>
+<th>What to cover</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0-5 min</td>
+<td>Clarify</td>
+<td>Monorepo vs polyrepo, languages, scale (engineers/commits), presubmit latency target, <strong>hermeticity</strong> (the key question), test taxonomy, cost sensitivity.</td>
+</tr>
+<tr>
+<td>5-8 min</td>
+<td>FR / NFR</td>
+<td>Build graph, incremental builds, remote cache, remote execution, artifact store, queueing, flaky handling. NFR: Tier-1 availability, cache <em>correct</em> but eventually available, presubmit ≤10 min.</td>
+</tr>
+<tr>
+<td>8-13 min</td>
+<td>Estimation</td>
+<td>Hit-rate economics: 5e8 logical actions → 5e7 executed at 90% hit (10x smaller fleet). 150 TB hot CAS, durable artifact store. "The cache is the design."</td>
+</tr>
+<tr>
+<td>13-18 min</td>
+<td>API + model</td>
+<td>Content-addressed Remote Execution API: Action Cache (digest→result) + CAS (hash→bytes). Idempotent uploads, authZ'd writes.</td>
+</tr>
+<tr>
+<td>18-32 min</td>
+<td>Architecture (centerpiece)</td>
+<td>Walk both diagrams: build → graph/affected targets → scheduler → Action Cache hit/miss → executor + CAS → artifact store. Stress content-addressing = correctness + dedup + shareability.</td>
+</tr>
+<tr>
+<td>32-45 min</td>
+<td>Deep dive</td>
+<td>(1) Remote cache + execution: digest keys, hermeticity, poisoning defense, stateless executors. (2) Flaky tests: detect via same-digest divergence, retry, quarantine, never hide real failures.</td>
+</tr>
+<tr>
+<td>45-52 min</td>
+<td>Tradeoffs + failures</td>
+<td>Incremental vs full, content-addressed vs heuristic, stateless executors, priority lanes. Cache stampede on base-lib change, fleet saturation, poisoning, non-hermetic corruption.</td>
+</tr>
+<tr>
+<td>52-58 min</td>
+<td>Scale 10x</td>
+<td>Executors + CAS bandwidth break first; raise hit rate as the real lever; incremental graph eval; multi-region with global Action Cache; merge-queue batching; cost governance.</td>
+</tr>
+<tr>
+<td>58-60 min</td>
+<td>Wrap</td>
+<td>Restate: content-addressed build graph + shared remote cache + remote execution makes the unit of work a deterministic action, so identical work is never repeated and the org scales by adding stateless executors — tying back to the CI/CD you've built.</td>
+</tr>
+</tbody>
+</table></article></div></body></html>

@@ -1,0 +1,336 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>A07 — Design a distributed cache</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="../index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="../index.html">&larr; All system-design questions</a><article class="doc"><h1>A07 — Design a distributed cache</h1>
+<p>Design an in-memory, horizontally-scalable cache (a self-built Memcached/Redis-class system) that sits in front of a slower source of truth and serves millions of reads/sec at sub-millisecond latency. The interviewer <strong>forbids "just use Redis"</strong> precisely because the goal is to see the internals: <strong>consistent hashing</strong> for placement, <strong>replication</strong> for availability, <strong>eviction</strong> (LRU/LFU) when memory fills, a coherent <strong>invalidation/consistency</strong> contract with the backing store, and <strong>hot-key</strong> survival. It's the smallest system that still forces you to confront partitioning, replication, and consistency all at once — which is why it's a foundational Google building-block question.</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>Cache role / topology:</strong> <strong>look-aside</strong> (the app reads the cache, falls back to the DB on a miss, and populates it) or <strong>read-through / write-through</strong> (the cache is inline and itself owns DB access)? This decides who handles misses and invalidation.</li>
+<li><strong>Consistency contract:</strong> is stale data acceptable, and for how long (a TTL-bounded eventual window), or does the <strong>writer need read-after-write</strong>? Most caches are best-effort eventual versus the source of truth — I want this pinned down because it drives the whole write/invalidation design.</li>
+<li><strong>Workload shape:</strong> read/write ratio, value sizes (bytes vs MB), and key cardinality. A 100:1 read:write blob cache is a very different system from a write-heavy counter cache.</li>
+<li><strong>Scale &amp; latency:</strong> target QPS and the p99 budget (sub-ms for in-datacenter; single-digit ms cross-AZ?). This sizes nodes and the replication strategy.</li>
+<li><strong>Durability expectation:</strong> is the cache purely a <strong>performance layer</strong> (loss = a cold start, tolerable) or must it survive restarts (then we need persistence/AOF)? Usually the former — I'll confirm we can treat it as ephemeral.</li>
+<li><strong>Eviction signal:</strong> is there a natural <strong>recency</strong> pattern (LRU — sessions, recent items) or a <strong>frequency</strong> pattern (LFU — a small set of perennially hot keys)? Any hard per-tenant memory quotas?</li>
+<li><strong>Hot keys:</strong> are there known skewed keys (a viral item, a global config blob)? This decides whether we need hot-key replication / client-side caching.</li>
+<li><strong>Multi-region:</strong> is the cache <strong>per-region</strong> (local to the DB region) or <strong>global</strong>? Global coherence is a much harder ask and I'd push back on needing it.</li>
+<li><strong>Backing store:</strong> what is the source of truth (SQL / KV / search index), and does it emit <strong>change events</strong> we can subscribe to for invalidation?</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> they want proof you treat the cache as <strong>subordinate to a source of truth</strong>, can state the <strong>consistency window</strong> precisely (not hand-wave "we cache it"), and know the <strong>internals</strong> that "use Redis" would have skipped. The standout move is to name the <strong>write policy</strong> (write-through / write-back / write-around) and the <strong>invalidation strategy</strong> <em>before</em> drawing boxes, and to raise <strong>hot keys</strong> proactively — that's the line between "knows Redis" and "can design a cache."</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In-scope</strong>
+- <code>get(key)</code>, <code>set(key, value, ttl)</code>, <code>delete(key)</code>; optional <code>mget</code>/<code>mset</code> for batching.
+- <strong>Horizontal scale-out:</strong> add/remove nodes with minimal key movement.
+- <strong>Replication</strong> so a node loss doesn't drop the hot working set or availability.
+- <strong>Eviction</strong> when memory is full (LRU and LFU options).
+- <strong>TTL-based expiry.</strong>
+- <strong>Invalidation</strong> coherent with the backing store on writes.
+- <strong>Hot-key mitigation.</strong>
+- Atomic counters / increment (a common cache primitive) — cheap to include.</p>
+<p><strong>Out-of-scope (defer)</strong>
+- Full database-grade persistence/durability (cache is a performance layer; mention AOF/snapshot as an option).
+- Rich data types beyond opaque blobs + counters (lists, sorted sets) unless asked.
+- Cross-region strong coherence (offer region-local caches + an invalidation broadcast instead).
+- Multi-key transactions / atomicity across shards (hard; defer).</p>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>10M reads/sec, 200K writes/sec; ~1 TB hot working set; hundreds of nodes.</td>
+</tr>
+<tr>
+<td>Latency</td>
+<td>p99 &lt; 1 ms in-DC GET (memory + one network hop); p99 &lt; 5 ms with a replica fallback.</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td>99.99% — a single node loss must not cause a visible outage (a replica takes over).</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td>Eventual vs the backing store; bounded staleness = TTL + invalidation propagation. Read-after-write for the writer via write-through + invalidate.</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>Ephemeral by default (loss tolerable, repopulate from source). Optional AOF for a warm restart.</td>
+</tr>
+<tr>
+<td>Elasticity</td>
+<td>Adding/removing a node moves O(1/N) of keys (consistent hashing), not the whole keyspace.</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>Network isolation (private subnet), per-tenant namespaces/quotas, optional auth token.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>Throughput
+  10,000,000 GET/sec, 200,000 SET/sec
+  Avg value 1 KB -&gt; read bandwidth = 10 GB/sec aggregate
+    -&gt; spread across ~200 nodes = 50K GET/sec/node, ~50 MB/sec/node (fine for a NIC)
+
+Memory sizing (hot working set)
+  Target hot set = 1 TB of values
+  Overhead: key + metadata (LRU links, TTL, hash) ~ 60-100 bytes/entry
+  At 1 KB values: overhead ~6-10% -&gt; provision ~1.1 TB usable
+  With replication factor 2: ~2.2 TB raw across the cluster
+  Node = 64 GB usable RAM -&gt; 2.2 TB / 64 GB = ~35 data nodes (x2 for replicas ~70);
+    run ~200 for headroom + hot-key replication + per-node QPS limits
+
+Consistent-hashing ring
+  Virtual nodes: ~150 vnodes/physical node -&gt; smooth load, low variance
+  200 nodes * 150 = 30,000 points on the ring
+
+Hit-rate economics (the whole point of the cache)
+  Hit rate 95% -&gt; backing store sees only 5% * 10M = 500K reads/sec (vs 10M) -&gt; 20x offload
+  A 1% hit-rate DROP adds 100K reads/sec to the DB -&gt; motivates careful eviction + hot-key handling
+</code></pre>
+<h2>5) API design</h2>
+<pre><code># Client-facing (look-aside or read-through)
+GET    /cache/{key}                 -&gt; 200 {value, ttl_remaining} | 404 miss
+PUT    /cache/{key}  {value, ttl}   -&gt; 200            # set / overwrite
+DELETE /cache/{key}                 -&gt; 200            # invalidate
+POST   /cache/mget   {keys:[...]}   -&gt; {key:value,...}
+POST   /cache/incr/{key} {by:1}     -&gt; {value}        # atomic counter
+
+# Internal (node-to-node)
+replicate(key, value, ttl, version) # primary -&gt; replica, async or sync
+gossip(membership, ring_version)    # cluster topology, failure detection (SWIM-style)
+handoff(key_range)                  # on node join/leave, move owned slots
+
+# Write-through wrapper (cache owns DB access)
+writeThrough(key, value):
+  db.write(key, value)              # source of truth FIRST
+  cache.set(key, value)             # then cache (or delete to invalidate)
+  publish_invalidation(key)         # to replicas / other regions
+</code></pre>
+<h2>6) Architecture — request &amp; data flow</h2>
+<p><strong>(a) ASCII layered flow</strong></p>
+<pre><code>            Application servers (clients of the cache)
+                  |  get(k) / set(k,v)
+                  v
+         [ Cache client library / smart router ]   knows the ring, hashes the key,
+                  |                                  picks the owning shard, and may keep a
+                  |                                  tiny client-side L1 micro-cache for hot keys
+                  |  hash(key) -&gt; ring -&gt; shard S
+                  v
+         [ Cache node S (primary) ] &lt;---- gossip ----&gt; [ other cache nodes ]  membership +
+            |        ^   in-memory hashtable + LRU/LFU + TTL                    failure detection
+            |        |   sync or async replicate
+            |        v
+            |   [ Cache node S' (replica) ]   serves reads if the primary fails
+            |
+            |  MISS (look-aside)
+            v
+         Application falls back to:
+         [ Backing store / source of truth ]   (SQL / KV / search index)
+            ^                |
+            |  write-through |  on write: DB FIRST, then cache set + invalidate
+            +----------------+
+                     |
+                     v
+         [ Invalidation bus (pub/sub) ] --&gt; fan-out delete(key) to replicas
+                                            and to other-region caches
+         (optional) [ CDC feed from DB ] --&gt; authoritative invalidations
+</code></pre>
+<p><strong>Read path (look-aside, the common case):</strong> the app calls the cache client with <code>get(key)</code>. The client optionally checks a tiny <strong>client-side L1</strong> for ultra-hot keys, then hashes the key onto the <strong>consistent-hash ring</strong> to find the owning shard's primary and issues the GET. On a <strong>hit</strong>, it returns in sub-ms. On a <strong>miss</strong>, the app reads the <strong>backing store</strong>, then <code>set</code>s the value with a TTL so subsequent reads hit. If the primary is unreachable, the client retries the shard's <strong>replica</strong> (still serves reads) while the failure detector promotes it.</p>
+<p><strong>Write path:</strong> with <strong>write-through</strong>, the writer goes to the <strong>backing store first</strong> (the source of truth), then either <code>set</code>s the new value or <code>delete</code>s the key (invalidate) and publishes an invalidation on the bus so replicas and other-region caches drop the stale copy. With <strong>write-around</strong>, the writer only updates the DB and lets the key be re-populated on the next read (good for write-heavy, rarely-read keys). With <strong>write-back</strong>, the cache absorbs the write and flushes to the DB asynchronously (lowest write latency, risk of loss — only for tolerant data like counters/metrics). Each entry carries a <strong>version/timestamp</strong> so a late replicate can't overwrite a newer value (last-writer-wins by version).</p>
+<p><strong>(b) Mermaid flowchart</strong></p>
+<div class="mermaid">
+flowchart TD
+  app[Application servers] --> cl[Cache client / smart router<br/>hash key -> ring -> shard]
+  cl -->|GET hot key| l1[(Client L1 micro-cache)]
+  cl -->|GET / SET| pri[(Cache node - primary shard S<br/>hashtable + LRU/LFU + TTL)]
+  pri <-->|sync/async replicate w/ version| rep[(Cache node - replica S')]
+  pri <-->|gossip membership| ring{{Cluster gossip / consistent-hash ring}}
+  cl -.->|MISS look-aside| db[(Backing store - source of truth)]
+  db -.->|repopulate set+ttl| pri
+  wr[Writer] -->|1 write| db
+  wr -->|2 set / invalidate| pri
+  wr --> bus[[Invalidation pub/sub]]
+  cdc[CDC feed from DB] -.-> bus
+  bus -->|delete key| rep
+  bus -->|delete key| xr[(Other-region caches)]
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<ul>
+<li><strong>Core store: an in-memory hash table per node</strong>, value = opaque bytes + metadata <code>{ttl, version, lru_ptr / lfu_count}</code>. First-principles: O(1) average get/set is what buys sub-ms latency; everything else (eviction, expiry) is bookkeeping hung off this table. Memory layout matters — slab allocation (Memcached-style) avoids fragmentation for fixed-ish value sizes.</li>
+<li><strong>Eviction index:</strong> an intrusive <strong>doubly-linked list for LRU</strong> (move-to-front on access, evict the tail) or a <strong>frequency structure for LFU</strong> (approximate counters + min-heap / O(1) LFU buckets). Pick LRU for recency-dominated workloads (sessions, recent items); pick LFU (or a TinyLFU admission filter) for skewed-popularity workloads where a one-off scan would otherwise evict a perennially-hot key.</li>
+<li><strong>Placement: consistent hashing with virtual nodes.</strong> First-principles: with modulo-N hashing, adding/removing a node remaps <strong>~all</strong> keys (a cluster-wide miss storm); consistent hashing remaps only <strong>~1/N</strong>, and ~150 vnodes/node flatten the otherwise-lumpy ring so load variance stays low. The ring maps <code>hash(key) -&gt; next vnode clockwise -&gt; physical node</code>.</li>
+<li><strong>Membership / topology:</strong> gossip-based (SWIM-style) failure detection + a <strong>versioned ring</strong> so clients learn topology changes; <strong>no central coordinator on the hot path</strong> (which would be a SPOF and a latency tax).</li>
+<li><strong>Backing store:</strong> whatever the source of truth is (SQL/KV/blob/index) — the cache is deliberately agnostic; it only needs (a) a way to read on miss and (b) ideally a change-event feed for invalidation.</li>
+<li><strong>Optional persistence:</strong> an append-only log (AOF) or periodic snapshot per node so a <em>planned</em> restart warm-starts instead of cold — <strong>off by default</strong> because the cache is a performance layer, not a database.</li>
+</ul>
+<h2>8) Deep dive</h2>
+<p><strong>Deep dive A — consistent hashing, replication, and rebalancing (the placement crux).</strong> Keys map to the ring by <code>hash(key)</code>; the owning physical node is the next clockwise vnode's owner. <strong>Replication:</strong> a key's primary is its owning vnode; replicas are the next R <strong>distinct physical</strong> nodes clockwise (skip vnodes of the same machine so a replica isn't co-located with its primary). On a <strong>node join</strong>, only the key ranges immediately counter-clockwise of its new vnodes move to it — O(total/N) keys, streamed via handoff while the old owner keeps serving (no downtime). On a <strong>node leave/failure</strong>, its replica is promoted and a new replica is rebuilt on the next node; again only that node's ranges move. <strong>Replication consistency:</strong> <em>synchronous</em> replicate gives a replica that's never behind (safer failover, higher write latency); <em>asynchronous</em> gives lower latency but a tiny window where a freshly-promoted replica is stale. For a cache, <strong>async + version stamps</strong> is usually right because the backing store is the real source of truth, and <strong>last-writer-wins by version</strong> resolves a primary/replica race after failover.</p>
+<p><strong>Deep dive B — invalidation &amp; consistency with the source of truth (the correctness crux).</strong> A cache is only useful if its staleness is <em>bounded and explained</em>. The fundamental hazard: a write to the DB must not leave the cache serving the old value indefinitely. Strategies weakest-to-strongest: (1) <strong>TTL only</strong> — staleness bounded by the TTL, simplest, zero coordination; fine when slightly-stale is acceptable. (2) <strong>Write-through + explicit invalidate</strong> — on write, update the DB then <code>delete</code>/<code>set</code> the key and publish an invalidation to replicas/other regions; gives read-after-write for the writer when reads route through the same path. The dangerous race is <strong>read-populates-stale</strong>: a reader misses, reads the old DB value, and <em>before it sets the cache</em> a writer updates the DB and invalidates — now the reader writes a stale value that sticks. Mitigations: a <strong>versioned set</strong> (only overwrite if the incoming version &gt; stored version, so the stale set is rejected), or <strong>delete-on-write rather than set-on-write</strong> combined with a short "populate only if still absent." (3) <strong>CDC-driven invalidation</strong> — subscribe to the DB's change log and invalidate keys as authoritative events, decoupling correctness from app discipline. For multi-region, an <strong>invalidation bus broadcasts deletes</strong> so regional caches converge; coherence is eventual, bounded by bus propagation. The honest framing: a cache trades a <strong>bounded staleness window</strong> for a <strong>20x read offload</strong> — name the window (TTL + propagation) explicitly rather than claiming strong consistency.</p>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Choice &amp; why</th>
+<th>Tradeoff accepted</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Placement</td>
+<td>Consistent hashing + vnodes</td>
+<td>Slightly more complex than mod-N; gain O(1/N) movement on churn</td>
+</tr>
+<tr>
+<td>Write policy</td>
+<td>Write-through default; write-back for tolerant data</td>
+<td>Write-through adds DB-write latency; write-back risks loss on a node crash</td>
+</tr>
+<tr>
+<td>Replication sync</td>
+<td>Async + version stamps</td>
+<td>Tiny stale-failover window; gain write latency, OK since the DB is truth</td>
+</tr>
+<tr>
+<td>Eviction</td>
+<td>LRU default; LFU/TinyLFU for skewed popularity</td>
+<td>LRU is scan-sensitive (a big scan can evict hot keys); LFU costs counters</td>
+</tr>
+<tr>
+<td>Consistency model</td>
+<td>Eventual, staleness ≤ TTL + propagation</td>
+<td>Not strongly consistent vs the DB; correct for a perf layer</td>
+</tr>
+<tr>
+<td>Coordination</td>
+<td>Gossip, no central master on the hot path</td>
+<td>Eventual topology view; a client may briefly route to a moved key (retry)</td>
+</tr>
+<tr>
+<td>Hot keys</td>
+<td>Replicate hot keys + client L1</td>
+<td>Extra memory + brief L1 staleness; gain to survive a single-shard meltdown</td>
+</tr>
+<tr>
+<td>CAP</td>
+<td>AP (serve possibly-stale on partition)</td>
+<td>Reads may be stale during a partition; availability preserved</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Hot key melts one shard:</strong> all traffic for a viral key hits a single node. <em>Mitigation:</em> detect via per-key counters, <strong>replicate the hot key across several nodes</strong> and have the client fan reads across them, plus a tiny <strong>client-side L1</strong> micro-cache; for extremes, key-splitting (<code>key#shard</code>).</li>
+<li><strong>Thundering herd / cache stampede on miss:</strong> a popular key expires and thousands of readers simultaneously miss and hammer the DB. <em>Mitigation:</em> <strong>request coalescing / single-flight</strong> (one reader recomputes, others wait), <strong>probabilistic early expiration</strong> (refresh slightly before TTL), and a short populate lock.</li>
+<li><strong>Cold start / mass eviction:</strong> a node restart or a flush empties the working set, dumping load on the DB. <em>Mitigation:</em> warm-start from AOF/snapshot or a replica; ramp traffic gradually; the 20x offload disappearing is the risk to size for.</li>
+<li><strong>Hot partition on rebalance:</strong> a node join causes a handoff storm. <em>Mitigation:</em> throttle handoff bandwidth; keep serving from the old owner until handoff completes.</li>
+<li><strong>Stale-write race (read-populates-stale):</strong> <em>Mitigation:</em> versioned set / delete-on-write (deep dive B).</li>
+<li><strong>Cascading failure when the cache dies:</strong> the DB suddenly takes 20x load and falls over — the real SPOF of "caching." <em>Mitigation:</em> protect the DB with admission control / load shedding and circuit breakers so a cache outage degrades <em>latency</em>, not <em>availability</em>.</li>
+<li><strong>Replica co-located with its primary:</strong> correlated failure. <em>Mitigation:</em> placement skips same-physical-node and ideally same-rack/AZ for replicas.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>First to break: per-node QPS and NIC</strong> for ultra-hot keys, and the <strong>DB behind the cache</strong> if hit rate dips. Evolve by adding hot-key replication tiers and a client-side L1 to absorb the hottest keys before they ever reach a shard.</li>
+<li><strong>Tiered caching:</strong> L1 (in-process app cache, micro-TTL) → L2 (this distributed cache) → L3 (regional shared cache), so each tier absorbs a fraction and the backing store sees a trickle.</li>
+<li><strong>Working set larger than RAM economics allow:</strong> add a memory-tier + SSD-tier (RocksDB-backed) for the long tail, keeping the hottest keys in RAM.</li>
+<li><strong>Multi-region:</strong> run a cache <strong>per region</strong> next to the DB region; broadcast invalidations on a global bus; accept eventual cross-region coherence. For globally-shared keys (config), use a very short TTL + CDC invalidation.</li>
+<li><strong>Smarter eviction:</strong> adopt admission control (TinyLFU) so a one-hit scan can't evict a frequently-used key — directly improving hit rate and thus DB offload at 10x.</li>
+<li><strong>Observability of hit rate:</strong> since a 1% hit-rate drop = 100K extra DB reads/sec at 10M QPS, treat hit rate as a <strong>first-class SLO</strong> with alerting.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"Why consistent hashing over mod-N?"</strong> Mod-N remaps nearly every key when N changes (a cache-wide miss storm); consistent hashing moves only ~1/N. Virtual nodes flatten load skew so no single node owns a disproportionate range.</li>
+<li><strong>"How do you keep the cache consistent with the DB?"</strong> It's eventual, bounded by TTL + invalidation propagation. I write the DB first (source of truth), then invalidate/set the key and publish to replicas; I guard the read-populates-stale race with versioned sets or delete-on-write. I state the staleness window explicitly rather than claim strong consistency.</li>
+<li><strong>"A single key gets 1M req/sec — what happens?"</strong> Without help, one shard melts. I detect the hot key, replicate it across several nodes, fan client reads across them, and add a client L1 micro-cache; key-splitting for the extreme case.</li>
+<li><strong>"A popular key expires and the DB gets hammered — fix it."</strong> Cache stampede: single-flight coalescing so one reader recomputes while others wait, plus probabilistic early refresh so it never fully cold-expires under load.</li>
+<li><strong>"LRU vs LFU — which and why?"</strong> LRU for recency workloads (sessions); LFU or a TinyLFU admission filter for skewed-popularity workloads where a scan would otherwise evict perennially-hot keys. I default LRU and switch on observed scan sensitivity.</li>
+<li><strong>"Write-through vs write-back?"</strong> Write-through keeps cache and DB coherent at the cost of write latency (default); write-back gives the lowest write latency but risks loss on a crash, so only for tolerant data like counters/metrics with async batched flush.</li>
+<li><strong>"What happens when the whole cache dies?"</strong> The DB takes the full 20x load — the real danger. I protect it with admission control, circuit breakers, and a gradual warm-up, so a cache outage degrades latency, not availability.</li>
+<li><strong>"How does a node join without downtime?"</strong> It claims its vnode ranges; only counter-clockwise ranges hand off to it, streamed while the old owner keeps serving; clients pick up the new ring via gossip and retry on the rare in-flight move.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Phase</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–6 min</td>
+<td>Clarify</td>
+<td>Look-aside vs write-through; staleness tolerance; read/write ratio; hot keys; ephemeral vs persistent</td>
+</tr>
+<tr>
+<td>6–9 min</td>
+<td>FR/NFR</td>
+<td>Lock eventual consistency (≤ TTL + propagation), 99.99% availability, sub-ms p99</td>
+</tr>
+<tr>
+<td>9–14 min</td>
+<td>Estimation</td>
+<td>QPS/node, memory sizing with overhead + replication, hit-rate offload (20x)</td>
+</tr>
+<tr>
+<td>14–20 min</td>
+<td>API + high-level arch</td>
+<td>get/set/delete, consistent-hash router, primary/replica; draw both diagrams</td>
+</tr>
+<tr>
+<td>20–25 min</td>
+<td>Walk read &amp; write paths</td>
+<td>Miss → populate; write-through DB-first-then-invalidate; version stamps</td>
+</tr>
+<tr>
+<td>25–40 min</td>
+<td>Deep dive</td>
+<td>(A) consistent hashing + replication + rebalance; (B) invalidation &amp; the stale-write race</td>
+</tr>
+<tr>
+<td>40–48 min</td>
+<td>Tradeoffs + failures</td>
+<td>Eviction choice, hot keys, stampede, cache-death cascading load</td>
+</tr>
+<tr>
+<td>48–55 min</td>
+<td>Scale 10x</td>
+<td>Tiered L1/L2/L3, SSD tier, multi-region invalidation bus, TinyLFU</td>
+</tr>
+<tr>
+<td>55–60 min</td>
+<td>Probes</td>
+<td>Consistency-window honesty, hot-key fan-out, stampede single-flight</td>
+</tr>
+</tbody>
+</table></article></div></body></html>

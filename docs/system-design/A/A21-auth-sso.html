@@ -1,0 +1,408 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>A21 — Design an authentication / SSO platform (Auth0-style)</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="../index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="../index.html">&larr; All system-design questions</a><article class="doc"><h1>A21 — Design an authentication / SSO platform (Auth0-style)</h1>
+<p>Design a multi-tenant <strong>identity provider (IdP)</strong> that lets applications delegate "who is this user, and what may they do?" — issuing and validating <strong>tokens</strong>, running <strong>OAuth2 / OIDC</strong> login flows, supporting <strong>single sign-on</strong> across many apps and <strong>federation</strong> to external IdPs, with <strong>MFA</strong>, <strong>refresh + revocation</strong>, and <strong>rate limiting</strong> — for thousands of tenant organizations. It tests whether you understand <strong>identity, tokens, and federation</strong> from first principles: the difference between authentication and authorization, why a signed <strong>JWT</strong> lets you validate without a database round-trip, and how SSO sessions, refresh tokens, and revocation interact. The crux is that auth is on the critical path of <em>every</em> request to <em>every</em> app, so it must be <strong>fast and offline-verifiable</strong>, yet a leaked or un-revoked token is a security incident — fast vs. revocable is the central tension.</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>Who are the actors and what flows?</strong> Are we serving <strong>first-party</strong> apps (our own), <strong>third-party</strong> apps (consent-based OAuth like "Sign in with X"), machine-to-machine (client-credentials), or all three? This decides which OAuth2 grant types we implement (auth-code + PKCE, client-credentials, device code) and whether a <strong>consent screen</strong> is in scope.</li>
+<li><strong>Multi-tenant model:</strong> is each customer org a <strong>tenant</strong> with its own users, branding, password policy, and connections? Shared user pool or fully isolated per tenant? This drives the data partitioning key (<code>tenant_id</code>) and the token <code>iss</code>/<code>aud</code> design.</li>
+<li><strong>Federation scope:</strong> must we federate to <strong>enterprise IdPs</strong> (SAML, OIDC, Active Directory / LDAP) and <strong>social</strong> providers (Google, GitHub)? Federation means we are both an <strong>OAuth client</strong> (to the upstream) and an <strong>OAuth server</strong> (to our apps) — confirm both directions.</li>
+<li><strong>Token model:</strong> stateless <strong>JWT access tokens</strong> (fast, offline-verifiable, hard to revoke) vs <strong>opaque</strong> tokens (introspected per request, instantly revocable, but a round-trip)? Or a hybrid (short JWT + revocation list)? This is the single most consequential decision — I'll surface the tradeoff explicitly.</li>
+<li><strong>Scale &amp; latency:</strong> how many tenants, MAU, and <strong>logins/sec</strong> at peak? What's the <strong>token-validation</strong> rate (every API call) vs the <strong>login</strong> rate (rare per user)? I'll assume O(50K) tenants, O(500M) users, ~50K logins/sec peak, and <strong>millions of token validations/sec</strong> — validation, not login, is the hot path. Confirm.</li>
+<li><strong>Session semantics:</strong> what's the <strong>SSO session</strong> lifetime, idle vs absolute timeout, "remember me," and does logging out of one app log you out of all (single logout)? This shapes the session store and cookie design.</li>
+<li><strong>Revocation SLA:</strong> when an admin disables a user or a token leaks, how fast must access actually stop — <strong>seconds</strong> (forces introspection or a fast revocation channel) or <strong>minutes</strong> (short-lived JWT expiry is enough)? This directly gates the token model.</li>
+<li><strong>MFA &amp; security posture:</strong> TOTP, WebAuthn/passkeys, SMS, push? Step-up auth for sensitive actions? Compliance (SOC2, GDPR data residency)? Brute-force / credential-stuffing protection expectations?</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> they want to see you reason about <strong>tokens as the core primitive</strong> — specifically the <strong>stateless-JWT-vs-opaque</strong> and <strong>fast-vs-revocable</strong> tradeoffs — not just name "OAuth." Strong candidates separate <strong>authentication</strong> (login flows, sessions, MFA, federation) from <strong>authorization</strong> (what a validated token is allowed to do), lead with the <strong>token-validation hot path</strong> (offline JWT verify via published JWKS) and treat login as the rarer, heavier path, and proactively address <strong>revocation, key rotation, and multi-tenant isolation</strong> before being asked.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In-scope</strong>
+- <strong>OAuth2 / OIDC flows:</strong> authorization-code + <strong>PKCE</strong> (web/SPA/mobile), client-credentials (M2M), refresh-token grant, device-code; OIDC <code>id_token</code> + <code>/userinfo</code>.
+- <strong>Token issuance &amp; validation:</strong> issue signed <strong>JWT</strong> access tokens + <code>id_token</code>; publish a <strong>JWKS</strong> endpoint so resource servers validate offline; introspection for opaque/strict mode.
+- <strong>Session management &amp; SSO:</strong> a central <strong>IdP session</strong> (cookie) so a logged-in user gets tokens for additional apps without re-entering credentials; idle + absolute timeouts.
+- <strong>Federation:</strong> act as an OAuth/OIDC <strong>client</strong> to upstream IdPs (Google, GitHub) and a <strong>SAML</strong> SP/IdP for enterprise; map external identities to internal users.
+- <strong>Refresh + revocation:</strong> refresh-token rotation; revoke a single token, all of a user's tokens, or a client's tokens; admin "disable user" stops access promptly.
+- <strong>MFA:</strong> TOTP, WebAuthn/passkeys, push/SMS; <strong>step-up</strong> auth for sensitive scopes.
+- <strong>Rate limiting / abuse protection:</strong> per-IP, per-account, per-tenant limits on login + token endpoints; lockout / credential-stuffing defense.
+- <strong>Multi-tenancy:</strong> per-tenant users, connections, branding, password policy, and isolation.</p>
+<p><strong>Out-of-scope (defer)</strong>
+- Fine-grained <strong>authorization</strong> / policy engine (RBAC/ABAC, Zanzibar-style relationship auth) — we issue scopes/claims; the <em>decision</em> engine is a separate system (acknowledge, hand off).
+- Full <strong>user-management UI</strong>, self-service org admin console, and billing.
+- <strong>Fraud/risk ML</strong> scoring beyond basic velocity/anomaly rules (mention as extension).
+- Legacy protocols beyond SAML/OIDC/LDAP (e.g. WS-Fed) — note, defer.</p>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>O(50K) tenants, O(500M) users; ~50K logins/sec peak; <strong>millions of token validations/sec</strong> (validation is the hot path, mostly offline at resource servers).</td>
+</tr>
+<tr>
+<td>p99 latency</td>
+<td>Token <strong>validation</strong> &lt; 1 ms (offline JWT verify, no IdP call). <strong>Login</strong> p99 &lt; 300 ms; token endpoint p99 &lt; 50 ms.</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td><strong>99.99%+</strong> for issue/validate — auth down = every app down. JWKS + JWT design lets resource servers keep validating even if the IdP control plane blips.</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td><strong>Strong</strong> for credential checks, MFA enrollment, and revocation writes (security-critical). <strong>Eventual</strong> acceptable for session-metadata replication and JWKS propagation (bounded, seconds).</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>Credentials, MFA secrets, refresh tokens, audit log: durable + replicated, <strong>never lost</strong>. Access-token state is ephemeral (tokens self-expire).</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>Passwords hashed with <strong>bcrypt/argon2</strong> (per-user salt); signing keys in <strong>HSM/KMS</strong>, rotated; TLS everywhere; refresh-token rotation + reuse detection; full audit trail; PII encrypted at rest.</td>
+</tr>
+<tr>
+<td>Revocation SLA</td>
+<td>Disabled user / leaked token loses access within <strong>seconds</strong> via a fast revocation channel layered on short-lived JWTs.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>Users / tenants
+  500M users, 50K tenants -&gt; ~10K users/tenant average (skewed: a few huge)
+
+Login rate (the rare path)
+  Say each active user logs in ~1x/day, 200M DAU -&gt; 200M/86400 ~ 2,300 logins/s avg
+  Peak ~10x average (morning login surge) -&gt; ~25-50K logins/s peak
+
+Token-validation rate (the HOT path)
+  Each logged-in user makes many API calls; say 200M DAU * 100 API calls/day
+    = 20B validations/day / 86400 ~ 230K/s avg, peak ~2-3M/s
+  CRUCIAL: validations are OFFLINE at resource servers (verify JWT signature
+    with cached JWKS) -&gt; they do NOT hit the IdP. So the IdP's QPS is driven by
+    LOGIN + token-refresh, not validation. This is why JWT is chosen.
+
+Token-refresh rate
+  Access token TTL ~15 min -&gt; a user active for hours refreshes ~4x/hour
+  200M DAU, ~2h active -&gt; ~200M * 8 refreshes/day / 86400 ~ 18K refresh/s avg
+
+Storage
+  Users: 500M * ~1 KB (profile, hash, MFA secret, metadata) ~ 500 GB -&gt; sharded
+  Refresh tokens: assume 2 active/user * 500M * ~200 B ~ 200 GB
+  Sessions: 200M concurrent * ~300 B ~ 60 GB -&gt; in-memory KV (Redis-like), TTL'd
+  Audit log: 20B+ validations not logged at IdP; log logins/refreshes/admin =
+    ~ (50K logins + 18K refresh)/s * ~500 B ~ 34 MB/s -&gt; ~3 TB/day -&gt; cold store
+
+JWKS / signing keys
+  A handful of active signing keys per region, rotated; JWKS payload ~ few KB,
+  cached aggressively at every resource server (TTL minutes). Negligible traffic.
+
+Cache memory (session + revocation list)
+  Sessions ~60 GB (above). Revocation list: even 10M revoked-token IDs * 40 B
+    = 400 MB -&gt; trivially fits in memory, pushed to resource servers.
+</code></pre>
+<h2>5) API design</h2>
+<pre><code># OAuth2 / OIDC (standard endpoints)
+GET  /authorize?response_type=code&amp;client_id&amp;redirect_uri&amp;scope&amp;state
+       &amp;code_challenge&amp;code_challenge_method=S256   # auth-code + PKCE; may
+                                                     # redirect to login/MFA/consent
+POST /token            grant_type=authorization_code | refresh_token
+                       | client_credentials | urn:...:device_code
+       -&gt; { access_token (JWT), id_token (JWT), refresh_token, expires_in, token_type }
+GET  /userinfo         Authorization: Bearer &lt;access_token&gt;  -&gt; OIDC claims
+POST /introspect       { token }  -&gt; { active, sub, scope, exp, ... }  # opaque/strict
+POST /revoke           { token, token_type_hint }            # RFC 7009
+GET  /.well-known/openid-configuration                       # OIDC discovery
+GET  /.well-known/jwks.json                                  # public keys (rotate-aware)
+
+# Session / SSO
+POST /login            { tenant, username, password } -&gt; sets IdP session cookie
+                         -&gt; may return mfa_required + mfa_session
+POST /mfa/verify       { mfa_session, method, code|assertion }
+POST /logout           # single logout: clears IdP session + notifies clients
+
+# Federation (we are the client to upstream IdPs)
+GET  /connections/{conn}/login  -&gt; redirect to upstream (Google/SAML/...)
+GET  /connections/{conn}/callback ?code|SAMLResponse  # map external -&gt; internal user
+
+# Admin / control plane (per tenant)
+POST /tenants/{t}/users           POST /tenants/{t}/users/{u}:disable   # -&gt; revoke
+POST /tenants/{t}/clients         { redirect_uris, grant_types, scopes }
+PUT  /tenants/{t}/connections/{c} { type: oidc|saml|ldap, config }
+PUT  /tenants/{t}/policy          { password_rules, mfa_required, session_ttl }
+</code></pre>
+<h2>6) Architecture — request &amp; data flow</h2>
+<p><strong>(a) ASCII layered flow</strong></p>
+<pre><code>              Clients (web app / SPA / mobile / M2M service)
+                       |                         |
+                       | (login / token)         | (API calls carry Bearer JWT)
+                       v                         v
+                 [ CDN / Edge ]            [ Resource servers / app backends ]
+                 (static login UI,            |  validate JWT OFFLINE:
+                  JWKS cached)                |   - check signature vs cached JWKS
+                       |                       |   - check iss/aud/exp/scope
+                       v                       |   - check fast revocation list
+              [ Global LB / GeoDNS ]           |  -&gt; allow/deny in &lt;1ms, NO IdP call
+                 anycast, TLS term             |
+                       |                       v
+                       v                  (only on miss/expiry: pull JWKS,
+        ============ Auth / IdP control plane ==========   refresh revocation feed)
+        |                                                |
+        |  [ API Gateway ]  rate-limit (per IP/acct/    |
+        |        |          tenant), routing, WAF        |
+        |        |                                       |
+        |        +--&gt; [ AuthN service ]  login flows,    |  &lt;-- LOGIN path (rare)
+        |        |        password check (argon2),       |
+        |        |        OIDC/OAuth state machine       |
+        |        |          |            |               |
+        |        |          v            v               |
+        |        |   [ MFA service ]  [ Federation svc ] ---&gt; upstream IdPs
+        |        |   TOTP/WebAuthn/   (OIDC/SAML/LDAP       (Google, GitHub,
+        |        |   push             client side)          Okta, AD)
+        |        |          |                              |
+        |        +--&gt; [ Token service ]  issue JWT/id_token,
+        |        |        sign with key from [ HSM / KMS ] (rotated)
+        |        |        publish [ JWKS endpoint ]
+        |        |          |
+        |        +--&gt; [ Session service ] create/lookup IdP SSO session
+        |        |          |
+        |        +--&gt; [ Revocation service ] write tombstone, fan out feed
+        |                   |
+        ====================|============================================
+                            v
+        [ User/cred store ]   [ Refresh-token store ]   [ Session store ]
+         (sharded SQL/KV,      (sharded KV, hashed,      (in-mem KV, TTL,
+          per-tenant,          rotation lineage)          per IdP session)
+          argon2 hashes)            |
+                            [ Revocation list / feed ]  -&gt; pushed to resource
+                            (in-mem KV + change stream)    servers + gateway
+                                    |
+                            [ Audit log ]  (append-only, durable, cold store)
+</code></pre>
+<p><strong>Login (write) path:</strong> a client redirects the user to <code>/authorize</code>. The <strong>API Gateway</strong> rate-limits and routes to the <strong>AuthN service</strong>, which renders the (CDN-served) login UI, verifies the password against the <strong>user/cred store</strong> (argon2 compare), and — if policy requires — hands off to the <strong>MFA service</strong> (TOTP/WebAuthn). For <strong>federated</strong> logins, the <strong>Federation service</strong> redirects to the upstream IdP, consumes the OIDC/SAML callback, and maps the external identity to an internal user (just-in-time provisioning if new). On success, the <strong>Session service</strong> creates an <strong>IdP SSO session</strong> (cookie) and the <strong>AuthN service</strong> mints an authorization <code>code</code>; the client exchanges it at <code>/token</code>. The <strong>Token service</strong> signs a short-lived <strong>JWT</strong> access token + <code>id_token</code> using a key from <strong>HSM/KMS</strong> and issues a rotating <strong>refresh token</strong> stored (hashed) in the refresh store. Everything security-relevant is appended to the <strong>audit log</strong>.</p>
+<p><strong>Token-validation (read / hot) path:</strong> the client sends the JWT as <code>Authorization: Bearer</code> on every API call. The <strong>resource server validates it entirely offline</strong>: verify the signature against the <strong>JWKS</strong> public keys (cached locally, TTL minutes), then check <code>iss</code>/<code>aud</code>/<code>exp</code>/<code>scope</code>, then consult a <strong>fast revocation list</strong> (a small in-memory bloom/set of revoked <code>jti</code>s pushed from the revocation service). This is <strong>sub-millisecond and never touches the IdP</strong> — which is exactly why the IdP's QPS is driven by <em>logins and refreshes</em>, not validations, and why the whole platform can be far smaller than the validation rate suggests.</p>
+<p><strong>SSO path:</strong> when the same logged-in user visits a <em>second</em> app, <code>/authorize</code> finds the existing <strong>IdP session</strong> cookie, skips credential entry (and MFA if still satisfied), and issues fresh tokens for the new app — that's single sign-on.</p>
+<p><strong>Revocation path:</strong> disabling a user or revoking a token writes a <strong>tombstone</strong> in the revocation service and fans out a <strong>change feed</strong> to resource servers/gateways, so short-lived JWTs are rejected within seconds even before they expire.</p>
+<p><strong>(b) Mermaid flowchart</strong></p>
+<div class="mermaid">
+flowchart TD
+  client[Clients: web / SPA / mobile / M2M] -->|login/token| edge[CDN / Edge: login UI + JWKS cache]
+  client -->|API calls with Bearer JWT| rs[Resource servers / app backends]
+  edge --> lb[Global LB / GeoDNS - TLS term]
+  lb --> gw[API Gateway: rate-limit per IP/acct/tenant, WAF]
+  gw --> authn[AuthN service: OAuth/OIDC flows, argon2 check]
+  authn --> mfa[MFA service: TOTP / WebAuthn / push]
+  authn --> fed[Federation service: OIDC / SAML / LDAP client]
+  fed -->|redirect/callback| up[Upstream IdPs: Google, Okta, AD]
+  authn --> tok[Token service: sign JWT + id_token]
+  tok --> kms[(HSM / KMS - signing keys, rotated)]
+  tok --> jwks[JWKS endpoint]
+  authn --> sess[Session service: IdP SSO session]
+  authn --> rev[Revocation service]
+  tok --> rtstore[(Refresh-token store - hashed, sharded)]
+  authn --> ustore[(User/cred store - per-tenant, sharded)]
+  sess --> sstore[(Session store - in-mem KV, TTL)]
+  rev --> revlist[(Revocation list + change feed)]
+  jwks -. cached, TTL mins .-> rs
+  revlist -. pushed feed .-> rs
+  rs -->|validate offline: sig + iss/aud/exp + revlist| ok[allow / deny < 1ms, no IdP call]
+  authn --> audit[(Audit log - append-only, durable)]
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<ul>
+<li><strong>User / credential store — sharded SQL or strongly-consistent KV, partitioned by <code>tenant_id</code></strong> (then by <code>user_id</code>): <code>{tenant_id, user_id, email, password_hash (argon2 + per-user salt), mfa_enrollments[], status, created_at}</code>. First-principles: credential checks and "disable user" must be <strong>strongly consistent</strong> and durable (a stale read could let a fired employee in), and multi-tenancy demands isolation, so we shard by tenant and keep per-tenant policy local. SQL gives transactional enrollment/disable; a Paxos/Raft-backed KV is equally valid.</li>
+<li><strong>Access tokens — NOT stored (stateless JWT).</strong> First-principles: the validation rate (millions/sec) dwarfs everything; storing+looking-up each token would put the IdP on the hot path of every API call. A <strong>signed JWT</strong> carries its claims so resource servers verify <strong>offline</strong> against published <strong>JWKS</strong> — trading instant revocation for massive read scalability (recovered via the revocation list + short TTL).</li>
+<li><strong>Refresh-token store — sharded KV, store only a hash</strong>, with <strong>rotation lineage</strong>: <code>{token_hash, user_id, client_id, parent_id, issued_at, status}</code>. First-principles: refresh tokens are long-lived bearer secrets, so we (a) never store them in clear, (b) <strong>rotate</strong> on each use and detect <strong>reuse</strong> of a retired token as a theft signal (revoke the whole lineage). Durable because losing them logs everyone out.</li>
+<li><strong>Session store — in-memory KV with TTL</strong> (Redis-like, replicated), keyed by session id: <code>{session_id, user_id, tenant_id, auth_methods, mfa_satisfied, idle_exp, absolute_exp}</code>. First-principles: sessions are ephemeral, latency-sensitive (checked on every SSO <code>/authorize</code>), and self-expiring — exactly the in-memory-with-TTL profile.</li>
+<li><strong>Signing keys — HSM / KMS</strong>, never in the app DB; multiple <strong>active</strong> keys (overlapping validity) so rotation is seamless — new tokens signed with the new <code>kid</code>, old tokens still verify against the still-published old public key until they expire. First-principles: key compromise is catastrophic, so private keys never leave the HSM and rotation must not invalidate live tokens.</li>
+<li><strong>Revocation list / feed — in-memory set + change stream</strong>: revoked <code>jti</code>s and "all-tokens-before-T for user U" markers, pushed to resource servers. First-principles: this is the <em>patch</em> that restores revocability to stateless JWTs; it must be tiny, fast, and fan-out-able, so an in-memory set with a streaming feed (and a bloom filter at the edge) fits.</li>
+<li><strong>Audit log — append-only, durable, cold store</strong> (e.g. partitioned log → object storage): every login, token issue, refresh, revoke, admin change. First-principles: security and compliance require an immutable trail; it's write-heavy and rarely read, so append-only + cheap cold storage.</li>
+</ul>
+<h2>8) Deep dive</h2>
+<p><strong>Deep dive A — the token model: stateless JWT vs opaque, and how we get revocation back.</strong> This is the heart of the problem.</p>
+<ul>
+<li><strong>Stateless JWT (chosen for access tokens):</strong> a signed token <code>{iss, sub, aud, exp, scope, tenant, jti}</code> that any resource server validates <strong>offline</strong> by checking the signature against the public <strong>JWKS</strong> — no IdP round-trip. <em>Pro:</em> validation scales to millions/sec independently of the IdP, survives IdP blips, sub-ms latency. <em>Con:</em> you <strong>can't un-issue</strong> a JWT before <code>exp</code> — it's valid by construction.</li>
+<li><strong>Opaque token (used for strict mode / introspection):</strong> a random string that means nothing without calling <strong><code>/introspect</code></strong> on the IdP. <em>Pro:</em> <strong>instantly revocable</strong> (the IdP just stops saying <code>active:true</code>). <em>Con:</em> a network round-trip on <strong>every</strong> API call → latency + the IdP becomes a throughput bottleneck and SPOF. Untenable as the default at our validation rate.</li>
+<li><strong>The hybrid we actually ship:</strong> <strong>short-lived JWT</strong> (e.g. 15 min) + <strong>long-lived rotating refresh token</strong> + a <strong>fast revocation feed</strong>. Short TTL bounds the blast radius of a leaked access token to minutes; the <strong>revocation list</strong> (pushed to resource servers as a small in-memory set / bloom filter keyed by <code>jti</code> or "user-tokens-before-T") cuts that to <strong>seconds</strong> for the cases that matter (disabled user, detected theft). Refresh tokens are where real revocation bites: revoke the refresh token and the user can't mint new access tokens, so within one TTL they're fully out. This deliberately trades a few seconds of revocation latency for the enormous win of offline validation — and I'd say so out loud.</li>
+<li><strong>Key rotation:</strong> sign with a current <code>kid</code>, publish current + previous public keys in JWKS with overlap; rotate keys regularly and on suspicion of compromise. Resource servers pick the verifying key by <code>kid</code>, so rotation never breaks in-flight tokens. Private keys live only in the <strong>HSM/KMS</strong>.</li>
+</ul>
+<p><strong>Deep dive B — SSO, sessions, federation, and refresh-token theft detection.</strong></p>
+<ul>
+<li><strong>SSO via a central IdP session:</strong> the first login creates an <strong>IdP session cookie</strong> on the auth domain. When the user hits a second app's <code>/authorize</code>, the AuthN service sees that cookie, confirms the session still satisfies the app's auth/MFA requirements, and issues tokens <strong>without re-prompting</strong> — that's SSO. <strong>Single logout</strong> clears the IdP session and notifies registered clients (front- or back-channel logout) so one logout ends them all.</li>
+<li><strong>Federation (we are both client and server):</strong> to our apps we are an OAuth/OIDC <strong>server</strong>; to <strong>upstream</strong> IdPs we are a <strong>client</strong>. For social/enterprise OIDC we run an auth-code flow against the upstream, validate <em>its</em> <code>id_token</code>, and <strong>map</strong> the external identity (<code>provider + subject</code>) to an internal user (just-in-time provision on first sight, merge by verified email per tenant policy). For <strong>SAML</strong> enterprise IdPs we act as an SP, validate the signed assertion, and map attributes. This lets a tenant "bring your own IdP" while our apps only ever speak one protocol to us.</li>
+<li><strong>Refresh-token rotation + reuse detection:</strong> every refresh issues a <strong>new</strong> refresh token and retires the old one (lineage chain). If a <strong>retired</strong> token is ever presented, that's a strong theft signal (the legit client already rotated past it) → we <strong>revoke the entire lineage</strong> and force re-auth. This catches stolen refresh tokens that the JWT model otherwise can't, and is a Staff-level detail worth volunteering.</li>
+<li><strong>MFA &amp; step-up:</strong> MFA is enrolled per user (TOTP secret / WebAuthn credential, stored encrypted). Sensitive scopes trigger <strong>step-up</strong>: even with a valid session, the app demands a fresh MFA assertion, recorded on the session so it isn't re-prompted needlessly.</li>
+</ul>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Choice &amp; why</th>
+<th>Tradeoff accepted</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Token type (access)</td>
+<td><strong>Stateless JWT</strong> validated offline via JWKS</td>
+<td>Cannot revoke before <code>exp</code> → patched with short TTL + revocation feed</td>
+</tr>
+<tr>
+<td>Revocation strategy</td>
+<td>Short TTL + pushed revocation list; revoke refresh on theft</td>
+<td>A few seconds of revocation latency, not instant</td>
+</tr>
+<tr>
+<td>Validation location</td>
+<td><strong>At the resource server</strong>, offline (no IdP call)</td>
+<td>Resource servers must cache JWKS + revocation feed and handle rotation</td>
+</tr>
+<tr>
+<td>Session model</td>
+<td>Central IdP session cookie (enables SSO)</td>
+<td>Session store is stateful, latency-sensitive, must be HA</td>
+</tr>
+<tr>
+<td>Refresh tokens</td>
+<td><strong>Rotate</strong> on use + reuse detection</td>
+<td>Extra write per refresh; lineage tracking complexity</td>
+</tr>
+<tr>
+<td>Key management</td>
+<td>Private keys in <strong>HSM/KMS</strong>, multi-key JWKS overlap</td>
+<td>Rotation orchestration; brief dual-key window</td>
+</tr>
+<tr>
+<td>Multi-tenancy</td>
+<td>Shard by <code>tenant_id</code>, per-tenant policy/isolation</td>
+<td>Cross-tenant features (shared SSO) need explicit federation</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td><strong>Strong</strong> for creds/MFA/revocation writes; eventual for JWKS/session replication</td>
+<td>Slightly stale JWKS/session reads (bounded seconds) tolerated</td>
+</tr>
+<tr>
+<td>CAP</td>
+<td><strong>CP</strong> for credential/revocation writes (correctness &gt; availability there); <strong>AP</strong> for offline validation (always validates, possibly seconds-stale on revocation)</td>
+<td>During partition, revocation may lag; logins to an unreachable shard fail rather than admit wrongly</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>IdP becomes the per-request hot path (the opaque-token trap).</strong> <em>Mitigation:</em> default to <strong>offline JWT validation</strong> so resource servers never call the IdP per request; introspection is reserved for explicit strict-mode clients.</li>
+<li><strong>Signing-key compromise (catastrophic — forge any token).</strong> <em>Mitigation:</em> keys in <strong>HSM/KMS</strong> (never exported), regular + emergency <strong>rotation</strong>, multi-key JWKS so rotation is instant and non-breaking; short token TTL bounds exposure of already-issued tokens.</li>
+<li><strong>Revocation lag lets a fired/compromised user keep access.</strong> <em>Mitigation:</em> short access-token TTL + a <strong>pushed revocation feed</strong> (seconds), and revoke the <strong>refresh token</strong> so no new access tokens can be minted.</li>
+<li><strong>Stolen refresh token (long-lived bearer secret).</strong> <em>Mitigation:</em> <strong>rotation + reuse detection</strong> — presenting a retired token revokes the whole lineage; bind tokens to client where possible (DPoP / mTLS).</li>
+<li><strong>Credential-stuffing / brute force / login DDoS.</strong> <em>Mitigation:</em> <strong>rate limiting</strong> per IP/account/tenant at the gateway, progressive <strong>lockout</strong> + CAPTCHA, breached-password checks, and MFA; keep the login path isolated so it can be throttled without affecting validation.</li>
+<li><strong>Session store outage (SSO can't function).</strong> <em>Mitigation:</em> replicate the in-memory session store (multi-replica, multi-AZ); on partial loss, users re-login (degraded, not down); access-token validation is unaffected because it's stateless.</li>
+<li><strong>JWKS unavailable / rotation race (resource servers can't fetch new public keys).</strong> <em>Mitigation:</em> cache JWKS with sane TTL + serve-stale-on-error; overlap old/new keys so a delayed fetch still verifies recent tokens; CDN-front the JWKS endpoint.</li>
+<li><strong>Thundering herd of refreshes when many tokens expire together.</strong> <em>Mitigation:</em> <strong>jitter</strong> token TTLs, support sliding/rolling refresh, and rate-limit the <code>/token</code> endpoint per client.</li>
+<li><strong>Hot tenant (one huge org) overloads its shard.</strong> <em>Mitigation:</em> shard within a tenant by <code>user_id</code>; isolate noisy tenants; per-tenant rate limits.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>First to break: the login + token-refresh tier and its stores</strong>, because validation is already offline and doesn't grow the IdP. Evolve by sharding the user/refresh stores finer by <code>tenant_id</code>/<code>user_id</code> and adding more stateless AuthN/Token replicas (they autoscale).</li>
+<li><strong>Global / multi-region:</strong> run the IdP <strong>regionally</strong> with users homed to a region (data-residency friendly), replicate JWKS globally (read-only, cacheable), and replicate the <strong>revocation feed</strong> cross-region. Tokens carry <code>iss</code> so a token issued in one region still validates anywhere via global JWKS.</li>
+<li><strong>Revocation at higher scale:</strong> move from a flat revocation set to a <strong>hierarchical / bloom-filtered</strong> feed (per-tenant shards, "revoke-before-T" epoch markers instead of per-<code>jti</code> entries) so the list stays small as revocations grow.</li>
+<li><strong>Hotter validation:</strong> push JWKS + revocation to the <strong>edge/CDN</strong> and into sidecars so even more validation happens close to apps; consider <strong>token-bound</strong> schemes (DPoP/mTLS) to harden bearer tokens without adding IdP calls.</li>
+<li><strong>Federation sprawl:</strong> as tenants bring hundreds of upstream IdPs, make the Federation service connection-config-driven and cache upstream metadata; isolate a flaky upstream so it can't stall other tenants' logins.</li>
+<li><strong>Stronger auth:</strong> roll out <strong>passkeys/WebAuthn</strong> as default (phishing-resistant), and risk-based step-up driven by signals (new device/geo) — a clean extension point on the login path.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"JWT vs opaque tokens — which and why?"</strong> <strong>JWT</strong> for access tokens so resource servers validate <strong>offline</strong> (millions/sec, sub-ms, IdP off the hot path). Opaque only for explicit strict-mode clients via introspection. I recover JWT's weakness — no instant revoke — with <strong>short TTL + a pushed revocation feed</strong> and refresh-token revocation.</li>
+<li><strong>"A user is fired — how fast do they lose access?"</strong> Disable the user → write a revocation tombstone fanned out to resource servers (<strong>seconds</strong>), and revoke their <strong>refresh token</strong> so no new access tokens mint. Their current short-lived JWT also self-expires within minutes regardless.</li>
+<li><strong>"How do you revoke a stateless JWT at all?"</strong> I don't revoke the JWT itself — I keep it short-lived and ship a <strong>revocation list</strong> (per-<code>jti</code> or "all tokens for user U before time T") that resource servers check from a local in-memory set, plus killing the refresh token to stop renewal.</li>
+<li><strong>"How does SSO actually work across apps?"</strong> A central <strong>IdP session cookie</strong> from the first login; subsequent apps' <code>/authorize</code> calls reuse that session (and satisfied MFA) and mint fresh per-app tokens without re-prompting. Single logout clears it everywhere.</li>
+<li><strong>"Explain the auth-code + PKCE flow and why PKCE."</strong> Client redirects to <code>/authorize</code> with a <code>code_challenge</code>; user authenticates; IdP returns a one-time <code>code</code>; client exchanges <code>code</code> + <code>code_verifier</code> at <code>/token</code>. <strong>PKCE</strong> binds the code to the client that started the flow so an intercepted code is useless — essential for public clients (SPA/mobile) that can't hold a secret.</li>
+<li><strong>"How do you rotate signing keys without breaking live tokens?"</strong> Sign with a new <code>kid</code> while <strong>publishing both old and new public keys</strong> in JWKS; old tokens verify against the old key until they expire, then it's dropped. Private keys live in the HSM and are never exported.</li>
+<li><strong>"How is federation different from issuing your own tokens?"</strong> In federation we're the <strong>client</strong> to an upstream IdP: we run its flow, validate <em>its</em> assertion/<code>id_token</code>, and <strong>map</strong> the external identity to an internal user — then issue <strong>our</strong> tokens. Our apps only ever speak one protocol to us.</li>
+<li><strong>"Protect the login endpoint from credential stuffing?"</strong> Rate-limit per IP/account/tenant, progressive lockout + CAPTCHA, breached-password screening, MFA, and isolation so login throttling never affects token validation.</li>
+<li><strong>"How do you keep tenants isolated?"</strong> Shard and scope everything by <code>tenant_id</code>; tokens carry tenant in <code>aud</code>/claims; per-tenant policy, connections, and keys (optionally per-tenant signing keys) so one tenant's data or config never bleeds into another's.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Phase</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–6 min</td>
+<td>Clarify</td>
+<td>Actors/flows, multi-tenant model, <strong>token model (JWT vs opaque)</strong>, revocation SLA, scale (validate vs login), MFA/federation scope</td>
+</tr>
+<tr>
+<td>6–9 min</td>
+<td>FR/NFR</td>
+<td>Lock offline validation &lt; 1 ms, login &lt; 300 ms, 99.99% availability, strong consistency for creds/revocation</td>
+</tr>
+<tr>
+<td>9–15 min</td>
+<td>Estimation</td>
+<td><strong>Validation rate vs IdP QPS</strong> (why JWT keeps IdP off the hot path), storage for users/refresh/sessions, revocation-list size</td>
+</tr>
+<tr>
+<td>15–20 min</td>
+<td>API + high-level arch</td>
+<td><code>/authorize</code> <code>/token</code> <code>/jwks</code> <code>/introspect</code> <code>/revoke</code>; draw both diagrams; separate control plane vs offline validation</td>
+</tr>
+<tr>
+<td>20–25 min</td>
+<td>Walk login + validation paths</td>
+<td>Login → MFA/federation → mint JWT + rotating refresh; API call → offline JWT verify + revocation check</td>
+</tr>
+<tr>
+<td>25–40 min</td>
+<td>Deep dive</td>
+<td>(A) JWT vs opaque + how revocation is recovered + key rotation; (B) SSO sessions, federation, refresh rotation + reuse detection</td>
+</tr>
+<tr>
+<td>40–48 min</td>
+<td>Tradeoffs + failures</td>
+<td>Fast-vs-revocable, key compromise, refresh-token theft, credential stuffing, JWKS/session outages</td>
+</tr>
+<tr>
+<td>48–55 min</td>
+<td>Scale 10x</td>
+<td>Multi-region homing + global JWKS, hierarchical revocation feed, edge validation, passkeys/risk-based step-up</td>
+</tr>
+<tr>
+<td>55–60 min</td>
+<td>Probes</td>
+<td>JWT-vs-opaque justification, fired-user revocation, PKCE, key rotation, federation vs issuance, tenant isolation</td>
+</tr>
+</tbody>
+</table></article></div></body></html>

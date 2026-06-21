@@ -1,0 +1,402 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>A15 — Design a server health monitoring / metrics system</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="../index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="../index.html">&larr; All system-design questions</a><article class="doc"><h1>A15 — Design a server health monitoring / metrics system</h1>
+<p>A metrics system ingests <strong>time-stamped numeric measurements</strong> (CPU, QPS, latency, error rate, queue depth …) from millions of hosts and services, stores them efficiently, lets engineers <strong>query and graph</strong> them with low latency, and <strong>fires alerts</strong> when rules trip. The defining tensions are <strong>write volume vs query latency</strong> (a relentless firehose of writes against interactive dashboard reads), <strong>cardinality control</strong> (the silent killer of every TSDB), and <strong>resolution vs retention</strong> (you can't keep per-second data forever). Google asks this because observability at scale forces explicit reasoning about time-series storage, downsampling/rollups, push-vs-pull collection, and alert-evaluation correctness — all Staff-level systems concerns.</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>What are we monitoring, and what's a metric?</strong> Infra (CPU/mem/disk) + application (QPS, p99 latency, error rate) + business KPIs? Each metric is <code>(name, {label:value...}, timestamp, float)</code>. The <strong>label set</strong> is what creates cardinality.</li>
+<li><strong>Push or pull (scrape)?</strong> Do agents <em>push</em> samples to us, or does a central scraper <em>pull</em> <code>/metrics</code> endpoints on a schedule? This is a foundational architectural fork (see deep dive).</li>
+<li><strong>Scale of sources and series?</strong> I'll assume <strong>~1M hosts/targets</strong>, <strong>~100–1000 series each</strong> → <strong>~10^8–10^9 active series</strong>, scraped/pushed at <strong>~10 s resolution</strong> → on the order of <strong>10–100M samples/sec</strong> ingest.</li>
+<li><strong>Query patterns and latency?</strong> Mostly <strong>recent</strong> data (dashboards over last hours) + alert evaluation every ~15–60 s, plus occasional historical drill-downs. Target dashboard <strong>p99 &lt; 1 s</strong> for recent ranges.</li>
+<li><strong>Retention and resolution policy?</strong> "Raw 10 s for 2 weeks, 1 min for 90 days, 1 hour for 1–2 years"? Retention × resolution drives storage and the downsampling pipeline.</li>
+<li><strong>Alerting semantics?</strong> Threshold rules, <code>for: 5m</code> sustained conditions, rate-of-change, multi-series aggregations? Per-series or per-aggregate? How fast must an alert fire (detection latency budget)?</li>
+<li><strong>Cardinality limits?</strong> Are users allowed unbounded labels (e.g. <code>user_id</code>, <code>request_id</code> as a label = explosion)? We must define limits and protection.</li>
+<li><strong>Consistency / loss tolerance?</strong> Metrics are statistical — is it OK to <strong>drop a few samples</strong> under overload rather than block ingest? (Usually yes — favor availability of ingest over completeness.)</li>
+<li><strong>Multi-region / global view?</strong> Per-region stores with a global query federation, or one global store? HA of the alerting path specifically (alerts must fire even during an outage — that's <em>when</em> you need them most).</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> they want a clean separation of <strong>ingest → time-series store → query → alerting</strong>, an explicit stance on <strong>push vs pull</strong>, and — the real differentiator — <strong>cardinality control</strong> and <strong>downsampling/rollups</strong> raised <em>unprompted</em>. Strong candidates note that "metrics tolerate sample loss" (so ingest favors availability), that the <strong>alerting path must be independently highly available</strong> (it's most needed during incidents), and that <strong>a columnar/delta-encoded TSDB</strong> beats a generic KV for this access pattern. Treating it as "just write rows to a database" is an L5 miss.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In scope</strong></p>
+<ul>
+<li>Ingest time-series samples <code>(name, labels, ts, value)</code> from millions of sources (push and/or pull).</li>
+<li>Durable, compressed <strong>time-series storage</strong> with configurable retention.</li>
+<li><strong>Downsampling / rollups</strong> to coarser resolutions for long retention.</li>
+<li><strong>Query API</strong> supporting time-range selection, label filtering, and aggregations (rate, sum, avg, percentiles) over series.</li>
+<li><strong>Alerting</strong>: rule evaluation (threshold, sustained <code>for:</code>, rate-of-change), with notifications and dedup/grouping.</li>
+<li><strong>Cardinality control</strong>: limits, monitoring, and protection against label explosion.</li>
+</ul>
+<p><strong>Out of scope (defer)</strong></p>
+<ul>
+<li>Distributed tracing and log storage (sibling pillars; we are metrics).</li>
+<li>Dashboard UI/rendering (we expose the query API; a Grafana-like front consumes it).</li>
+<li>Long-term cold analytics / arbitrary OLAP joins across metrics (warehouse export).</li>
+<li>On-call scheduling / incident management (PagerDuty-style; we <em>send</em> to it).</li>
+</ul>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>~1M sources, ~10^8–10^9 active series, ~10–100M samples/sec ingest at 10 s resolution.</td>
+</tr>
+<tr>
+<td>Ingest</td>
+<td>Sustained firehose; <strong>favor availability</strong> — shed/drop samples under overload rather than block.</td>
+</tr>
+<tr>
+<td>Query latency</td>
+<td>Dashboards (recent): <strong>p99 &lt; 1 s</strong>; alert eval: complete each cycle (~15–60 s) well within budget.</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td><strong>99.9%+</strong> queries; <strong>alerting path 99.99%+</strong> and independently survivable (most needed during outages).</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td><strong>Eventual / lossy-tolerant</strong> for samples; alert evaluation must see a <em>consistent recent</em> view.</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>Recent data on replicated nodes; older data on object store (cheap, 11 9's). Per-node loss ≠ data loss.</td>
+</tr>
+<tr>
+<td>Retention</td>
+<td>Tiered: raw 10 s ~2 wk, 1 min ~90 d, 1 h ~1–2 yr (configurable).</td>
+</tr>
+<tr>
+<td>Cardinality</td>
+<td>Hard per-tenant/per-metric series limits; reject/aggregate offenders before they hit storage.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>INGEST
+  10^8 active series, scraped every 10 s -&gt; 10^8 / 10 = 10^7 = 10M samples/sec.
+  (At 10^9 series -&gt; 100M samples/sec.) Each raw sample ~16 B in memory (ts:8 + value:8) before compression.
+
+WHY TIME-SERIES COMPRESSION MATTERS
+  Naive: 10M samples/sec * 16 B = 160 MB/s = ~13.8 TB/day uncompressed. Unsustainable to keep raw.
+  Time-series compression (delta-of-delta on timestamps + XOR on float values, Gorilla-style)
+  achieves ~1.3–2 bytes/sample on real data -&gt; ~10x reduction.
+    10M/s * 1.5 B ≈ 15 MB/s ≈ ~1.3 TB/day compressed for raw tier. Now tractable.
+
+STORAGE WITH ROLLUPS (retention tiers)
+  Raw 10 s, 14 d:   10M/s * 1.5B * 86400 * 14 ≈ ~18 TB.
+  1-min, 90 d:      downsample 6x fewer points: (10M/6)/s effective... 
+                    ≈ raw_points/6 * 1.5B over 90 d ≈ ~28 TB.
+  1-hr, 365 d:      ((10M/360))/s * 1.5B * 86400*365 ≈ ~13 TB.
+  Total ≈ tens of TB, dominated by mid-tier — rollups are what make long retention affordable.
+  Without rollups, keeping raw for a year ≈ 1.3 TB/day * 365 ≈ ~475 TB. ~10-15x worse.
+
+QUERY
+  A dashboard panel over &quot;last 6h at 10s&quot; for one series = 6*3600/10 = 2160 points -&gt; trivial.
+  A query fanning over 10^4 series for a p99 aggregate must hit only the relevant shards/blocks
+  -&gt; index by (metric, labels); read recent blocks from memory/SSD, not object store.
+
+CARDINALITY (the silent killer)
+  One label with high cardinality (e.g. user_id, 10^7 values) on a metric MULTIPLIES series count.
+  metric{handler, status, instance} with 100 handlers * 10 status * 1000 instances = 10^6 series — fine.
+  Add user_id (10^7) -&gt; 10^13 series -&gt; instant blow-up. MUST cap label cardinality.
+
+ALERTING
+  Say 10^5 alert rules, evaluated every 30 s -&gt; ~3.3K rule-evals/sec, each a small range query.
+  Cheap if rules hit pre-aggregated/recent data; expensive if each scans raw high-card series.
+</code></pre>
+<h2>5) API design</h2>
+<pre><code># Ingest
+POST /v1/ingest            # push: batch of samples
+   body: [ {name, labels{...}, ts, value}, ... ]
+# (Pull mode) scraper GETs target's exposition endpoint:
+GET  http://target/metrics  -&gt; text/exposition: metric{labels} value ts
+
+# Query
+GET /v1/query_range?expr=&lt;selector+agg&gt;&amp;start=&amp;end=&amp;step=
+   e.g. expr = rate(http_requests_total{handler=&quot;/x&quot;,status=&quot;5xx&quot;}[1m])
+   -&gt; { series:[ {labels, points:[[ts,val]...]} ] }
+GET /v1/query?expr=...&amp;time=...           # instant query (alert eval)
+GET /v1/labels , /v1/series?match=...     # metadata / label discovery
+
+# Alerting
+PUT /v1/rules { name, expr, for:&quot;5m&quot;, threshold, severity, labels, annotations }
+GET /v1/alerts?state=firing|pending
+# notifier dedups/groups -&gt; webhook/email/pager
+</code></pre>
+<h2>6) Architecture — request &amp; data flow</h2>
+<p><strong>(a) ASCII layered request/data flow</strong></p>
+<pre><code>        Sources: hosts / services exposing metrics
+            |                                   ^
+   PUSH     | samples                  PULL     |  scrape /metrics every 10s
+   (agent)  v                          (scraper)|
+        +======================================================================+
+        |   INGEST TIER  (stateless collectors / scrapers, autoscaled)         |
+        |   - validate, relabel, ENFORCE CARDINALITY LIMITS (drop/aggregate)   |  shed under overload
+        |   - shard by series-id = hash(metric+labels)                         |
+        +======================================================================+
+                 |                 |                  |     (route by series shard)
+                 v                 v                  v
+        +-----------------------------------------------------------+
+        |   WRITE BUFFER  (per-shard WAL + in-memory head block)    |  recent ~2h, hot for reads
+        |   columnar, delta-of-delta ts + XOR float compression     |  (Gorilla-style)
+        +-----------------------------------------------------------+
+                 |  flush sealed blocks (every ~2h)                  ^
+                 v                                                   |  recent reads (memory/SSD)
+        +-----------------------------------------------------------+
+        |   TIME-SERIES STORE (sharded)                             |
+        |   [ Inverted index: label -&gt; series-ids ]  +  [ blocks ]  |  point/range by (metric,labels,ts)
+        +-----------------------------------------------------------+
+            |  age out                         ^                ^
+            v                                  |                | recent
+        +--------------------------+   +-------------------+    |
+        |  ROLLUP / DOWNSAMPLE     |   |  OBJECT STORE     |    |
+        |  raw-&gt;1min-&gt;1hr (async)  |--&gt;|  old blocks (cheap)|   |
+        +--------------------------+   +-------------------+    |
+                                                               |
+        +======================================================+======================+
+        |   QUERY TIER (fan-out, merge, aggregate)             |                      |
+        |   picks resolution by range; reads recent from store,|                      |
+        |   old from object store; computes rate/percentile/agg|                      |
+        +=============================+========================+======================+
+                 ^                    |                                  ^
+   GET query     |  dashboards        |  instant queries (every cycle)   |
+                 |                    v                                  |
+        [ Dashboards / API clients ]  +====================+   reads pre-agg / recent
+                                      |  ALERTING ENGINE   |---&gt; [ Notifier: dedup, group,
+                                      |  eval rules, `for:`|        route -&gt; pager/email ]
+                                      |  (independently HA)|
+                                      +====================+
+</code></pre>
+<p><strong>Write/ingest path.</strong> Sources either <strong>push</strong> batches to the ingest tier or expose <code>/metrics</code> that <strong>scrapers pull</strong> on a schedule. The stateless <strong>ingest tier</strong> validates, applies relabeling, and — critically — <strong>enforces cardinality limits</strong> (rejecting or aggregating away high-cardinality labels) <em>before</em> anything reaches storage. It shards each sample by <code>series-id = hash(metric+labels)</code> and routes to the owning store node, which appends to a per-shard <strong>WAL</strong> and an in-memory <strong>head block</strong>. The head block is <strong>columnar and compressed</strong> (delta-of-delta on timestamps, XOR on float values — Gorilla-style ~10×). Every ~2 h the head is <strong>sealed and flushed</strong> as an immutable block; an async <strong>rollup pipeline</strong> downsamples raw→1 min→1 h and ages old blocks out to <strong>object storage</strong>. Under overload we <strong>drop samples</strong> rather than block ingest — metrics are statistical, availability of the pipeline matters more than any single point.</p>
+<p><strong>Read path.</strong> Dashboards and the alerting engine issue <strong>range/instant queries</strong> with a label selector and an aggregation (<code>rate</code>, <code>sum</code>, percentile). The <strong>query tier</strong> uses the <strong>inverted index</strong> (<code>label → series-ids</code>) to find matching series, <strong>chooses the resolution tier</strong> based on the time range (recent short range → raw blocks from memory/SSD; long historical range → rolled-up blocks from object store), reads only the relevant blocks, and <strong>merges + aggregates</strong> across shards. Recent queries are served entirely from hot memory/SSD → p99 &lt; 1 s. The <strong>alerting engine</strong> runs the same query path every cycle to evaluate rules (including sustained <code>for:</code> windows), and is deployed <strong>independently and HA</strong> so it keeps firing even if dashboards or part of the store are degraded — alerts are most needed exactly when things are broken.</p>
+<p><strong>(b) Mermaid flowchart</strong></p>
+<div class="mermaid">
+flowchart TD
+  src[Sources: hosts / services]
+  src -->|push samples| ingest
+  scr[Scrapers] -->|pull /metrics 10s| ingest
+  src -. exposes /metrics .-> scr
+
+  ingest[Ingest tier: validate, relabel, CARDINALITY LIMITS, shard] --> wal[(Per-shard WAL + head block - compressed)]
+  wal -->|flush sealed blocks| tsdb[(Time-series store: inverted index + blocks)]
+  tsdb -->|age out| rollup[Rollup / downsample raw->1m->1h]
+  rollup --> obj[(Object store - old blocks)]
+  tsdb -->|recent| query
+  obj -->|historical| query
+
+  query[Query tier: fan-out, pick resolution, aggregate] --> dash[Dashboards / API]
+  query --> alert
+  alert[Alerting engine: eval rules + for:, independently HA] --> notif[Notifier: dedup, group, route]
+  notif --> pager[Pager / email / webhook]
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<p><strong>Time-series store — purpose-built TSDB, not a generic KV/SQL.</strong></p>
+<pre><code>series-id = hash(metric_name + sorted(labels))      # stable identity for a series
+Inverted index:  label_name=value  -&gt;  posting list of series-ids   (for selector queries)
+Block (immutable, per ~2h, per shard):
+   per series: compressed chunk of (delta-of-delta ts, XOR float values)  -- Gorilla-style
+Layout: columnar by series, time-ordered; sealed blocks are read-only and mergeable.
+</code></pre>
+<p>Why a TSDB and not Postgres or a KV: the workload is <strong>append-only, time-ordered numeric writes</strong> at tens of millions/sec, with reads that are <strong>range scans over (metric, labels, time)</strong>. Specialized <strong>delta/XOR compression</strong> gets ~1.5 B/sample (vs 16 B raw) — a generic row store can't approach that and would buckle on write volume. The <strong>inverted index</strong> is the key indexing choice: it maps <code>label=value</code> to posting lists of series-ids so a selector like <code>{handler="/x",status="5xx"}</code> resolves to exactly the series to scan, instead of scanning everything. Sealed blocks being <strong>immutable</strong> makes them trivially cacheable and shippable to object storage.</p>
+<p><strong>Tiered storage by age.</strong> Hot recent blocks live in memory/SSD on store nodes (replicated for the recency that dashboards/alerts need). Old blocks move to <strong>object storage</strong> — cheap, durable (11 9's), and fine for occasional historical drill-downs that tolerate higher latency.</p>
+<p><strong>Rollup store.</strong> Downsampled series (1 min, 1 h) are just more blocks at coarser resolution, indexed the same way, so the query tier picks the right tier transparently.</p>
+<p><strong>Alert rule store.</strong> Small relational/KV store for rule definitions, current alert state (pending/firing), and silences.</p>
+<p>Stores deliberately rejected: a generic time-series-in-SQL (write amplification, no XOR/delta compression, index bloat at 10^9 series); an exact KV per-sample (no range-scan efficiency, no compression). Cardinality, not row count, is the real scaling axis — the index design and limits address it directly.</p>
+<h2>8) Deep dive</h2>
+<h3>Deep dive A — Time-series storage, compression, downsampling, retention</h3>
+<p><strong>Compression (why it's the foundation).</strong> Two ideas from Facebook's Gorilla:
+- <strong>Timestamps: delta-of-delta.</strong> Samples arrive at a near-fixed interval (every 10 s), so consecutive deltas are nearly identical; encoding the <em>delta of the delta</em> makes most timestamps cost a single bit. 
+- <strong>Float values: XOR.</strong> Adjacent values are usually close, so <code>xor(prev, cur)</code> has many leading/trailing zero bits; we store only the meaningful middle bits.
+Together these compress real metrics to <strong>~1.3–2 bytes/sample (~10×)</strong>, turning ~14 TB/day raw into ~1.3 TB/day — this is what makes keeping raw data at all feasible (§4).</p>
+<p><strong>Downsampling / rollups (why long retention is affordable).</strong> Per-second/10 s data is invaluable for the last days but pointless at 1-year zoom. An async pipeline rolls <strong>raw → 1 min → 1 h</strong>, precomputing per-bucket <strong>aggregates</strong> (min/max/avg/count/sum, and percentile-friendly sketches). Storage drops by the downsample ratio; without rollups, a year of raw is ~10–15× more expensive (§4). The query tier <strong>transparently selects</strong> the coarsest tier that still satisfies the requested step, so a "last year" dashboard reads cheap 1 h rollups while "last hour" reads raw.</p>
+<p><strong>Retention enforcement.</strong> Each tier has a TTL (raw 2 wk, 1 min 90 d, 1 h 1–2 yr). Expiry is just dropping aged blocks — cheap because blocks are immutable and time-bounded. Tiering to <strong>object storage</strong> before deletion lets us keep cheap long-tail history.</p>
+<p><strong>Query resolution selection.</strong> Range <code>&gt; threshold</code> → use 1 h rollups; medium → 1 min; recent → raw. This bounds the number of points scanned per query regardless of range, keeping dashboards fast.</p>
+<h3>Deep dive B — Cardinality control + push-vs-pull + HA alerting</h3>
+<p><strong>Cardinality control (the make-or-break).</strong> Active <strong>series count = product of label cardinalities</strong>, and storage/index/query cost all scale with it. A single accidental high-cardinality label (<code>user_id</code>, <code>request_id</code>, raw URL with IDs) multiplies series by millions and can OOM the store (§4). Defenses, enforced at the <strong>ingest tier</strong> before storage:
+- <strong>Hard limits</strong> per tenant/metric on active series; <strong>reject or aggregate</strong> samples that would exceed them.
+- <strong>Relabeling</strong> to drop/normalize dangerous labels (e.g. strip IDs from a path → <code>/users/{id}</code>).
+- <strong>Cardinality monitoring</strong>: track new-series creation rate; alert on explosions; surface the worst offenders.
+- <strong>Allowlist label sets</strong> for high-volume metrics so engineers can't accidentally add an unbounded dimension.</p>
+<p><strong>Push vs pull (a real architectural fork).</strong>
+| | Pull (scrape) | Push |
+|---|---|---|
+| Discovery | Central scraper finds targets via service discovery | Sources must know where to send |
+| Health signal | Scrape failure <em>is</em> a down signal (free liveness) | Need a separate heartbeat for "is it alive?" |
+| Firewall/NAT | Scraper must reach targets | Works through NAT / short-lived jobs |
+| Backpressure | Scraper controls rate | Sources can overwhelm ingest |
+| Ephemeral jobs | Hard (job gone before scrape) | Natural (push then exit, via a gateway) |</p>
+<p><strong>Choice:</strong> <strong>pull as the default</strong> (free liveness, central rate control, easy discovery) for long-lived targets, with a <strong>push gateway</strong> for short-lived/batch jobs and NAT'd sources. Stating this hybrid and <em>why</em> is the Staff move; many candidates pick one dogmatically.</p>
+<p><strong>Alert evaluation correctness + HA.</strong> Rules evaluate on a fixed cadence; <code>for: 5m</code> means the condition must hold across consecutive evaluations before firing (suppresses flapping). The <strong>alerting engine must be independently highly available and able to read a consistent recent view</strong> — because alerts matter most <em>during</em> an outage, when the rest of the system may be degraded. So: run alert evaluators <strong>redundantly</strong> (multiple replicas evaluating the same rules, with <strong>dedup at the notifier</strong> so we don't page twice), keep their data dependency on the <strong>hot recent tier</strong> (not object store), and ensure an outage of dashboards or historical storage doesn't stop alert firing. The <strong>notifier</strong> dedups, <strong>groups</strong> related alerts (one page for "50 hosts down," not 50), applies silences, and routes by severity.</p>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Option A</th>
+<th>Option B</th>
+<th>Choice &amp; why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Storage engine</td>
+<td>Generic SQL/KV</td>
+<td>Purpose-built TSDB (columnar, delta/XOR)</td>
+<td><strong>TSDB</strong> — ~10× compression, range-scan layout, inverted index for selectors.</td>
+</tr>
+<tr>
+<td>Collection</td>
+<td>Pull (scrape)</td>
+<td>Push</td>
+<td><strong>Pull default + push gateway</strong> — free liveness &amp; rate control; push for ephemeral/NAT.</td>
+</tr>
+<tr>
+<td>Retention</td>
+<td>Keep raw forever</td>
+<td>Tiered rollups + object store</td>
+<td><strong>Rollups</strong> — long retention affordable; pick resolution by query range.</td>
+</tr>
+<tr>
+<td>Ingest under load</td>
+<td>Block/queue (no loss)</td>
+<td>Shed samples</td>
+<td><strong>Shed</strong> — metrics are statistical; pipeline availability &gt; completeness.</td>
+</tr>
+<tr>
+<td>Cardinality</td>
+<td>Allow any labels</td>
+<td>Hard limits + relabel</td>
+<td><strong>Limit + relabel</strong> — cardinality is the real scaling axis; cap it at ingest.</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td>Strong</td>
+<td>Eventual / lossy-tolerant</td>
+<td><strong>Eventual</strong> for samples; alert eval reads a consistent <em>recent</em> view.</td>
+</tr>
+<tr>
+<td>Alerting HA</td>
+<td>Single evaluator</td>
+<td>Redundant + notifier dedup</td>
+<td><strong>Redundant</strong> — alerts must fire during outages; dedup avoids double-paging.</td>
+</tr>
+<tr>
+<td>Hot recent reads</td>
+<td>Object store</td>
+<td>Memory/SSD hot tier</td>
+<td><strong>Hot tier</strong> — dashboards/alerts need recent data fast; archive cold to object store.</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Cardinality explosion.</strong> A bad label (<code>user_id</code>) multiplies series → store OOM, index bloat, slow queries. <em>Mitigation:</em> ingest-time hard limits, relabel/drop, cardinality monitoring + alerts on new-series rate, allowlisted label sets.</li>
+<li><strong>Ingest overload / thundering herd.</strong> Mass restart → every target reconnects/pushes at once. <em>Mitigation:</em> stateless autoscaled ingest, <strong>shed samples</strong> under pressure, jittered scrape intervals, per-source rate limits, backpressure to push gateway.</li>
+<li><strong>Hot shard (a noisy metric/host).</strong> One series-id range gets disproportionate writes/reads. <em>Mitigation:</em> shard by <code>hash(metric+labels)</code> for even spread; split hot shards; cap per-series sample rate.</li>
+<li><strong>Query fan-out blow-up.</strong> A selector matching 10^6 series scans the world. <em>Mitigation:</em> inverted index restricts to matching series; <strong>resolution selection</strong> bounds points per query; reject/limit unbounded queries; per-query time/series budgets.</li>
+<li><strong>Object-store latency on historical queries.</strong> Cold blocks are slow. <em>Mitigation:</em> serve recent from hot tier; cache frequently-read old blocks; accept higher latency for deep history (set expectations).</li>
+<li><strong>Alerting path down during an incident.</strong> The one time you need alerts, they're gone. <em>Mitigation:</em> <strong>independent HA alert evaluators</strong>, dependency only on the hot tier, notifier dedup/grouping, and an external dead-man's-switch ("alerting is alive") so silence-of-alerts itself pages.</li>
+<li><strong>Clock skew / late samples.</strong> Out-of-order or future timestamps corrupt windows. <em>Mitigation:</em> bound accepted timestamp drift; reject far-future samples; align on scrape/ingest time where appropriate.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>10^9–10^10 series / 100M+ samples/sec.</strong> Scale the store <strong>horizontally by series shard</strong>; the inverted index and blocks shard cleanly. The binding constraint becomes <strong>cardinality</strong>, so invest harder in ingest-time limits and per-tenant quotas.</li>
+<li><strong>Global / multi-region.</strong> Run <strong>per-region stores</strong>; a <strong>global query federation</strong> layer fans queries to regions and merges, instead of one global store (which would be a write/latency bottleneck). Alerting stays regional (fire close to the data) with a global rollup for cross-region views.</li>
+<li><strong>Longer retention / cheaper history.</strong> Push more aggressively to <strong>object storage</strong> with a query-time fetch+cache; add coarser rollup tiers (6 h, 1 d). Consider a separate cold analytical export for ad-hoc OLAP.</li>
+<li><strong>Richer queries (histograms, percentiles at scale).</strong> Store <strong>percentile-friendly sketches</strong> (e.g. t-digest/DDSketch) in rollups so <code>p99</code> over long ranges is mergeable and exact-enough without keeping raw.</li>
+<li><strong>More alert rules (10^6+).</strong> Co-locate rule evaluation with the relevant shard (push the predicate down), pre-aggregate common alert inputs, and group rules to amortize range queries.</li>
+<li><strong>What breaks first:</strong> cardinality (always) and query fan-out on broad selectors. Both are contained by ingest-time limits and index+resolution selection; storage volume is handled by rollups + object tiering.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"Push or pull — which and why?"</strong> Pull (scrape) by default: scrape success is a free liveness signal, the scraper controls rate, and service discovery makes targets self-registering. I add a <strong>push gateway</strong> for short-lived/batch jobs and NAT'd sources — a hybrid, chosen per source type.</li>
+<li><strong>"Why not store metrics in a relational DB?"</strong> Write volume (tens of M/sec) and the <strong>range-scan-by-(metric,labels,time)</strong> pattern don't fit row stores. A TSDB with <strong>delta-of-delta + XOR compression</strong> hits ~1.5 B/sample (~10×) and an <strong>inverted index</strong> resolves selectors without full scans.</li>
+<li><strong>"What's the single biggest scaling risk?"</strong> <strong>Cardinality.</strong> Series count is the product of label cardinalities; one unbounded label (user_id) explodes it. I enforce <strong>hard limits + relabeling at ingest</strong> and monitor new-series rate.</li>
+<li><strong>"How do you keep a year of data affordably?"</strong> <strong>Downsampling/rollups</strong> (raw→1 min→1 h) + tiering old blocks to object storage. Query tier picks the coarsest resolution that satisfies the range, so long-range dashboards read cheap rollups.</li>
+<li><strong>"How does <code>for: 5m</code> alerting work and how is it HA?"</strong> The condition must hold across consecutive evaluation cycles before firing (anti-flap). Evaluators run <strong>redundantly</strong> reading the <strong>hot recent tier</strong>, with <strong>dedup/grouping at the notifier</strong>, so alerts fire even when the rest of the system is degraded — which is exactly when they matter.</li>
+<li><strong>"Is it OK to lose samples?"</strong> Yes — metrics are statistical, so under overload I <strong>shed samples</strong> to keep the pipeline available rather than block ingest. Alert evaluation tolerates a missed sample but reads a consistent recent view.</li>
+<li><strong>"How do you make a dashboard query fast?"</strong> Inverted index → only matching series; resolution selection bounds points; recent data served from memory/SSD. p99 &lt; 1 s for recent ranges; deep history is slower by design (object store).</li>
+<li><strong>"What if someone runs a query over a million series?"</strong> Per-query series/time budgets, forced aggregation, and resolution downshift; reject pathological selectors. The index + budgets protect the system.</li>
+<li><strong>"How do you detect that monitoring itself is down?"</strong> An external <strong>dead-man's-switch</strong>: a heartbeat alert that fires if the pipeline <em>stops</em> producing — so silence is itself a signal.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Focus</th>
+<th>What to land</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–6 min</td>
+<td>Clarify</td>
+<td>What's a metric (name+labels+ts+value); <strong>push vs pull</strong>; scale (10^8 series, 10M samples/s); retention/resolution.</td>
+</tr>
+<tr>
+<td>6–10 min</td>
+<td>FR / NFR</td>
+<td>ingest→store→query→alert; lossy-tolerant ingest; alerting independently HA; cardinality limits.</td>
+</tr>
+<tr>
+<td>10–16 min</td>
+<td>Estimation</td>
+<td>10M samples/s; compression ~1.5 B (~10×); rollups make 1-yr retention ~10× cheaper; cardinality math.</td>
+</tr>
+<tr>
+<td>16–22 min</td>
+<td>API + high-level arch</td>
+<td>ingest tier (cardinality enforce) → WAL/head → TSDB+index → rollup/object → query → alerting; draw it.</td>
+</tr>
+<tr>
+<td>22–38 min</td>
+<td>Deep dive</td>
+<td>Delta-of-delta+XOR compression; rollups + resolution selection; <strong>cardinality control</strong>; pull+push hybrid; HA alerting.</td>
+</tr>
+<tr>
+<td>38–46 min</td>
+<td>Tradeoffs</td>
+<td>TSDB vs SQL; shed vs block; tiered retention; redundant alert eval + notifier dedup.</td>
+</tr>
+<tr>
+<td>46–54 min</td>
+<td>Bottlenecks</td>
+<td>Cardinality explosion, query fan-out, alerting-down-during-incident — each with mitigation + dead-man's-switch.</td>
+</tr>
+<tr>
+<td>54–60 min</td>
+<td>Scale 10×</td>
+<td>Shard by series; per-region store + global query federation; sketches for percentiles; predicate pushdown for rules.</td>
+</tr>
+</tbody>
+</table></article></div></body></html>

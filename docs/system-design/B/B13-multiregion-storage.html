@@ -1,0 +1,368 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>B13 — Design a multi-region, globally-distributed storage system</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="../index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="../index.html">&larr; All system-design questions</a><article class="doc"><h1>B13 — Design a multi-region, globally-distributed storage system</h1>
+<p>Design a globally-distributed key/value (or object) storage system that places, replicates, and serves data across multiple geographic regions with an <strong>explicit, tunable consistency model</strong>, automatic failover, conflict resolution, and disaster recovery. This is the question where Google weights <strong>consistency depth</strong> most heavily at L6 — it wants to hear quorum math (R + W &gt; N), Paxos/Raft intuition, read-your-writes vs eventual, geo-routing, and the cross-region latency tax — articulated from first principles, not as "use Spanner." It is the canonical test of whether you understand CAP as an engineering dial rather than a slogan.</p>
+<h2>Lead with this — your résumé hook</h2>
+<p>"I've owned multi-cloud infrastructure spanning AWS and GCP, so a globally-distributed store is exactly the terrain I operate in — the unavoidable truth is the speed of light: a cross-region round trip is ~100–150 ms, so every consistency decision is really a latency decision. I'll design a partitioned, multi-region replicated store with a <strong>tunable consistency dial</strong> (per-key choice of strong vs eventual), quorum-based replication, leader-based consensus for the strong path, and explicit failover + DR. I'll make the CAP tradeoff a deliberate, documented choice rather than an accident." Lead with the multi-cloud ownership — it earns you the right to make strong-vs-eventual calls credibly.</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>Data model:</strong> opaque KV, document, or large objects/blobs? Object storage (immutable, large) has a very different replication and consistency story than mutable small records.</li>
+<li><strong>Consistency requirement, per use case:</strong> do we need strong/linearizable writes (e.g., account balance, inventory), or is eventual consistency acceptable (e.g., user profile, social graph)? Can it be <strong>tunable per key/namespace</strong>? This is the central question.</li>
+<li><strong>Read-your-writes:</strong> must a user always see their own last write even when routed to another region? (Almost always yes for UX — but it's weaker than full linearizability.)</li>
+<li><strong>Geography of users and writes:</strong> are writes single-homed (one region owns a key) or can the same key be written from multiple regions concurrently (multi-master)? Multi-master forces conflict resolution.</li>
+<li><strong>Scale:</strong> total data volume (TB/PB), QPS read/write, object/record size, number of regions, and how data is partitioned by user/geo.</li>
+<li><strong>Latency budget:</strong> p99 read and write targets — strong writes will pay the cross-region quorum cost; is that acceptable, or do writes need to be local-region fast?</li>
+<li><strong>Durability &amp; DR:</strong> required durability (e.g., 11 nines), RPO (how much data may we lose on a region loss?) and RTO (how fast must we recover?).</li>
+<li><strong>Failure model:</strong> must we survive a full region outage with no data loss and continued writes? That determines replica count and placement.</li>
+<li><strong>Data residency / compliance:</strong> must certain data stay in certain regions (GDPR, data sovereignty)? This constrains placement.</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> they are probing <strong>consistency depth</strong>. The strong signal is to (1) refuse a one-size-fits-all answer and propose a <strong>per-key tunable consistency dial</strong>, (2) immediately ground every choice in the ~100 ms cross-region RTT, and (3) raise read-your-writes, conflict resolution, and quorum math unprompted. Saying "eventually consistent, we'll use vector clocks" or "strongly consistent, we'll use Paxos" without acknowledging the latency/availability cost is an L5 answer; framing it as a deliberate CAP/PACELC dial is L6.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In-scope</strong>
+- <code>get(key)</code> / <code>put(key, value)</code> / <code>delete(key)</code> with a per-operation or per-namespace <strong>consistency level</strong> (strong / read-your-writes / eventual).
+- Multi-region replication with a defined topology (replicas in ≥3 regions).
+- Quorum-tunable reads and writes (R, W against N replicas).
+- Strong-consistency path via leader-based consensus (Raft/Paxos) per partition.
+- Conflict detection + resolution for the eventual/multi-master path.
+- Geo-routing: clients reach the nearest healthy region.
+- Automatic failover on node/region loss; leader re-election.
+- Disaster recovery: backups, point-in-time restore, defined RPO/RTO.
+- Data residency constraints on placement.</p>
+<p><strong>Out-of-scope (defer)</strong>
+- Rich query/secondary indexes and transactions across many keys (mention distributed txn as an evolution; multi-key cross-region transactions are very expensive).
+- A full SQL surface — start as KV/object; layer query later.
+- Client-side caching/CDN (orthogonal; can sit in front).</p>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>1 PB+ data; 1M reads/sec, 100K writes/sec globally; 3–5 regions; billions of keys, partitioned.</td>
+</tr>
+<tr>
+<td>Latency</td>
+<td>Eventual read p99 &lt; 10 ms (region-local). Strong write p99 ~ 1 cross-region RTT (~100–300 ms) — explicitly the cost of strong. Read-your-writes &lt; 50 ms.</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td>99.99%+; survive a full region loss with continued service (eventual path stays up; strong path may pause writes for an unreachable quorum).</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td>Tunable per key: linearizable (strong), read-your-writes (session), or eventual. Default per namespace.</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>11 nines; data replicated to ≥3 regions; RPO near-zero for strong, bounded (async lag) for eventual; RTO minutes.</td>
+</tr>
+<tr>
+<td>Partition behavior</td>
+<td>Explicit CAP/PACELC: strong keys choose CP (refuse writes without quorum); eventual keys choose AP (accept, reconcile later).</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>Encryption in transit + at rest, per-tenant isolation, region residency enforcement, audited access.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>Latency budget (the governing constraint)
+  Same-region RTT      ~ 0.5–2 ms
+  Cross-region RTT     ~ 100–150 ms (e.g., us-east &lt;-&gt; eu-west)
+  Strong write needs a quorum ACK across regions:
+     W=2 of N=3 with replicas in 2+ regions -&gt; ~1 cross-region RTT ~ 100–150 ms
+  =&gt; Strong writes are ~100x slower than local. This drives the tunable dial.
+
+Quorum config
+  N = 3 replicas (across 3 regions) for strong path; R + W &gt; N for linearizable-ish:
+     W=2, R=2  -&gt; R+W=4 &gt; 3  =&gt; overlapping quorum, read sees latest committed write
+  Eventual path: W=1 (local), R=1 (local) -&gt; fast, reconciled async
+
+Storage
+  1 PB logical * replication factor 3 = 3 PB raw across regions
+  + per-key metadata (version vector / Raft index, ~100 B) for billions of keys
+     5e9 keys * 100 B = 500 GB metadata (small vs data)
+
+Throughput / bandwidth
+  Writes 100K/sec * avg 4 KB = 400 MB/sec ingest
+  Cross-region replication for strong path replicates each write to 2 other regions:
+     400 MB/sec * 2 = 800 MB/sec inter-region WAN -&gt; sizeable, motivates batching/compression
+  Reads 1M/sec served region-locally (eventual) -&gt; ~4 GB/sec read, no WAN cost
+
+DR
+  RPO: strong path ~0 (committed = replicated); eventual path = async lag (seconds)
+  RTO: leader re-election ~seconds; region failover via geo-DNS ~tens of seconds
+</code></pre>
+<h2>5) API design</h2>
+<pre><code># Core, with explicit consistency level
+PUT  /v1/{ns}/{key}
+  Headers: Consistency: strong | session | eventual
+           If-Match: &lt;version&gt;          # optimistic concurrency (CAS)
+  Body: &lt;value&gt;
+  -&gt; 200 {version, region_committed:[...]}   # which regions acked
+
+GET  /v1/{ns}/{key}
+  Headers: Consistency: strong | session | eventual
+           X-Session-Token: &lt;last-seen-version&gt;   # for read-your-writes
+  -&gt; 200 {value, version} | 404
+
+DELETE /v1/{ns}/{key}  (tombstone, replicated)
+
+# Compare-and-swap (linearizable conditional write)
+POST /v1/{ns}/{key}/cas  { expected_version, new_value } -&gt; 200 | 409 conflict
+
+# Admin / topology
+GET  /v1/regions                 # health, leadership per partition
+POST /v1/namespaces  { name, default_consistency, residency:[&quot;eu&quot;], replication:3 }
+</code></pre>
+<h2>6) Architecture — request &amp; data flow</h2>
+<p><strong>(a) ASCII layered flow</strong></p>
+<pre><code>        Clients (global)                     each routed to nearest healthy region
+              |
+              v
+     [ GeoDNS / Anycast Global LB ]          latency-based routing, health-checked
+              |                                fails a region out -&gt; next nearest
+              v
+     [ Regional API / Coordinator ]          parses Consistency level, finds the
+              |                                partition + replica set for the key
+              |   hash(key) -&gt; partition -&gt; replica group (3 regions)
+              v
+     [ Partition router (per region) ]
+        /                |                 \
+       v                 v                  v
+  STRONG path        SESSION path        EVENTUAL path
+  (linearizable)     (read-your-writes)  (local + async)
+       |                 |                  |
+       v                 |                  v
+  [ Consensus group ]    |          [ Local replica ]  W=1 local ack
+  Raft/Paxos per         |                  |
+  partition: leader      |                  v
+  + followers across     |          [ Async cross-region replication ]
+  3 regions; W=2 of 3    |                  |  ship via WAN (batched/compressed)
+       |                 |                  v
+       v                 v          [ Conflict detection ]
+  [ Replicated log ] -&gt; commit when  version vectors / last-writer-wins /
+  quorum acks; read at  quorum (R=2)  CRDT merge -&gt; reconcile divergent copies
+       |
+       v
+  [ Storage engine per replica ]  LSM-tree on local SSD, encrypted at rest
+       |
+       v
+  [ Backup / snapshot -&gt; DR object store ]  PITR, RPO/RTO targets
+</code></pre>
+<p><strong>Write path (strong):</strong> client <code>PUT</code> with <code>Consistency: strong</code> lands at the nearest regional coordinator, which finds the key's partition and its <strong>Raft/Paxos leader</strong> (one leader per partition, replicas in 3 regions). The leader appends to its replicated log and waits for a <strong>write quorum (W=2 of N=3)</strong> to ack — this costs ~1 cross-region RTT (~100–150 ms), the unavoidable price of linearizability. Once committed, the value is durable in ≥2 regions (RPO ≈ 0). With <code>Consistency: eventual</code>, the coordinator writes the <strong>local replica only (W=1)</strong>, acks immediately (~ms), and <strong>asynchronously replicates</strong> to other regions; conflicting concurrent writes are reconciled later.</p>
+<p><strong>Read path:</strong> <code>Consistency: strong</code> reads through the leader (or a read quorum R=2 with R+W&gt;N) so it observes the latest committed write. <code>Consistency: session</code> (read-your-writes) carries the client's last-seen version token; the local region serves it if its replica is at least that fresh, else it waits/forwards — giving each user a monotonic view without paying full linearizable cost. <code>Consistency: eventual</code> reads the <strong>nearest local replica</strong> (sub-10 ms), possibly slightly stale.</p>
+<p><strong>Failover &amp; DR:</strong> GeoDNS health-checks regions and routes around a failed one. Within a partition, losing the leader triggers <strong>Raft re-election</strong> among surviving followers (seconds); the strong path keeps serving as long as a quorum survives, and <strong>refuses writes if a quorum is unreachable</strong> (CP choice — no split-brain). Snapshots stream to a DR object store for point-in-time restore.</p>
+<p><strong>(b) Mermaid flowchart</strong></p>
+<div class="mermaid">
+flowchart TD
+  cli[Clients - global] --> geo[GeoDNS / Anycast LB<br/>latency-based, health-checked]
+  geo --> coord[Regional Coordinator<br/>reads Consistency level]
+  coord --> pr{Partition router<br/>hash key -> replica group}
+  pr -->|strong| raft[Consensus group - Raft/Paxos<br/>leader + followers in 3 regions]
+  raft --> log[(Replicated log<br/>commit at quorum W=2/3)]
+  pr -->|session| sess[Read-your-writes<br/>version token, local if fresh]
+  pr -->|eventual| loc[(Local replica - W=1)]
+  loc --> async[Async cross-region replication<br/>batched, compressed]
+  async --> conf[Conflict resolution<br/>version vectors / LWW / CRDT]
+  log --> eng[(Storage engine - LSM on SSD<br/>encrypted at rest)]
+  sess --> eng
+  conf --> eng
+  eng --> dr[(Backup / snapshot -> DR object store<br/>PITR, RPO/RTO)]
+  geo -.->|region down: reroute| coord
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<ul>
+<li><strong>KV / object as the base abstraction.</strong> First-principles: a narrow key-&gt;value interface is what makes global partitioning and per-key consistency tractable; rich queries fight against partitioning, so we defer them.</li>
+<li><strong>Partitioning by key-range or hash.</strong> Hash partitioning (consistent hashing) spreads load evenly and avoids hotspots; range partitioning enables ordered scans but risks hot ranges. Default to hash with vnodes; each partition is an independent replication/consensus unit so the system scales by adding partitions.</li>
+<li><strong>Per-partition storage engine: LSM-tree on local SSD.</strong> LSM gives high write throughput (sequential writes, background compaction) which matches a write-replicated system; reads use bloom filters + block cache. Each replica owns a full copy of its partition's data.</li>
+<li><strong>Strong path: replicated log via Raft/Paxos.</strong> First-principles: linearizability requires a single agreed order of operations; a consensus-backed replicated log provides exactly that, with a leader to serialize writes and followers to provide durability and failover. One consensus group <strong>per partition</strong> (not one global group) so consensus throughput scales horizontally.</li>
+<li><strong>Eventual path: versioned values with conflict metadata.</strong> Each value carries a <strong>version vector</strong> (or dotted version vector) to detect concurrent writes across regions. Resolution: <strong>last-writer-wins</strong> (simple, may lose a write — fine for profiles) or <strong>CRDT merge</strong> (for counters/sets/registers where automatic merge is well-defined) or surface both versions to the app (siblings) for semantic merge.</li>
+<li><strong>DR store: cheap, durable object storage</strong> for snapshots + WAL archives enabling point-in-time restore; cross-region and ideally cross-cloud (AWS S3 + GCS) for the multi-cloud durability story.</li>
+</ul>
+<h2>8) Deep dive</h2>
+<p><strong>Deep dive A — the consistency dial: quorums, consensus, and read-your-writes (the crux Google weights).</strong> The core insight is that consistency is a <strong>per-key dial</strong>, and each setting buys a different point on the latency/availability curve (PACELC: even with no partition, you trade latency for consistency).</p>
+<ul>
+<li><strong>Strong / linearizable:</strong> route writes through a <strong>single Raft leader per partition</strong>; the leader appends to the replicated log and commits when a <strong>majority quorum</strong> acks. Reads either go through the leader or use a <strong>read quorum</strong> satisfying <strong>R + W &gt; N</strong> (e.g., N=3, W=2, R=2 -&gt; 4 &gt; 3) so any read quorum overlaps any write quorum by at least one replica and therefore observes the latest committed value. Cost: a write pays ~1 cross-region RTT for the quorum, so ~100–150 ms. This is the right choice for inventory, balances, unique-username — anything where a stale read is a correctness bug.</li>
+<li><strong>Read-your-writes (session):</strong> weaker and far cheaper. The client holds its <strong>last-written version</strong>; reads in any region are served locally if that replica has caught up to the version, otherwise the read waits or forwards to a fresher replica. This guarantees a user never sees their own write disappear, without forcing a global order on all operations — the sweet spot for most user-facing data.</li>
+<li><strong>Eventual:</strong> write the local replica (<strong>W=1</strong>), ack in milliseconds, replicate asynchronously. Concurrent cross-region writes to the same key <strong>will</strong> conflict; <strong>version vectors</strong> detect it and a resolution policy (LWW / CRDT / siblings) converges all replicas. This is AP: during a partition both sides keep accepting writes and reconcile on heal.</li>
+</ul>
+<p>The Staff move is to <em>map use cases onto the dial</em> and quantify: "balances -&gt; strong, ~120 ms writes; profiles -&gt; read-your-writes, ~20 ms; activity feed -&gt; eventual, ~5 ms, LWW." That demonstrates you treat CAP/PACELC as an engineering control, not a label.</p>
+<p><strong>Deep dive B — failover, conflict resolution, and disaster recovery.</strong> <strong>Leader/region failover:</strong> each partition's Raft group detects leader loss via missed heartbeats and <strong>re-elects</strong> among survivors; as long as a majority of replicas survive (e.g., 2 of 3 with replicas in 3 regions, one region down), the strong path keeps committing. If a <strong>quorum is unreachable</strong> (2 regions down), the strong path <strong>refuses writes</strong> rather than risk split-brain — the explicit CP choice; the eventual path stays available. <strong>Geo-failover:</strong> GeoDNS/anycast health-checks reroute client traffic away from a dead region within tens of seconds. <strong>Conflict resolution</strong> on the eventual/multi-master path: version vectors identify whether two writes are causally ordered (keep the later) or concurrent (conflict); concurrent conflicts resolve by LWW (timestamp, accepting possible lost update), by CRDT merge (deterministic, no loss, for supported types), or by returning siblings for app-level merge. <strong>DR:</strong> continuous WAL archiving + periodic snapshots to a cross-region (and cross-cloud) object store enable <strong>point-in-time restore</strong>; RPO is ~0 for the strong path (committed implies replicated) and bounded by async lag for eventual; RTO is minutes (re-election + reroute + optional restore). Regularly game-day a full region loss to validate RPO/RTO.</p>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Choice &amp; why</th>
+<th>Tradeoff accepted</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Consistency</td>
+<td>Per-key dial (strong / session / eventual)</td>
+<td>More complex API + ops; gain right latency for each use case</td>
+</tr>
+<tr>
+<td>Strong write path</td>
+<td>Raft/Paxos leader + majority quorum</td>
+<td>~1 cross-region RTT per write (~100–150 ms)</td>
+</tr>
+<tr>
+<td>CAP during partition</td>
+<td>CP for strong keys, AP for eventual</td>
+<td>Strong writes pause without quorum; eventual may diverge then reconcile</td>
+</tr>
+<tr>
+<td>Quorum config</td>
+<td>N=3, R=2, W=2 (R+W&gt;N)</td>
+<td>Writes need 2 regions to ack; survives 1 region loss</td>
+</tr>
+<tr>
+<td>Multi-master</td>
+<td>Allowed only on eventual path</td>
+<td>Requires conflict resolution; single-homed for strong avoids it</td>
+</tr>
+<tr>
+<td>Conflict resolution</td>
+<td>Version vectors + LWW/CRDT/siblings</td>
+<td>LWW can lose a write; CRDT limits data types; siblings push work to app</td>
+</tr>
+<tr>
+<td>Partitioning</td>
+<td>Hash + vnodes, per-partition consensus group</td>
+<td>No global scans cheaply; gain horizontal consensus throughput</td>
+</tr>
+<tr>
+<td>Replication for eventual</td>
+<td>Async cross-region</td>
+<td>Bounded staleness / non-zero RPO; gain local write latency</td>
+</tr>
+<tr>
+<td>DR</td>
+<td>Cross-region + cross-cloud snapshots</td>
+<td>Storage + WAN cost; gain region/cloud-failure survivability</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Cross-region latency dominates strong writes:</strong> the speed of light is the bottleneck. <em>Mitigation:</em> single-home strong keys near their writers; batch/pipeline log entries; place quorum replicas in nearby regions; offer session/eventual where strong isn't required.</li>
+<li><strong>Hot partition / hot key:</strong> one partition's leader saturates. <em>Mitigation:</em> finer partitioning (split the range), more vnodes, and for read-hot keys serve from followers (eventual) or a cache; for the strong path, shard the key if semantically possible.</li>
+<li><strong>Split-brain on partition:</strong> two regions both think they're leader. <em>Mitigation:</em> majority-quorum consensus mathematically prevents two leaders committing; minority side steps down and refuses writes.</li>
+<li><strong>Leader election storm / thundering herd on failover:</strong> <em>Mitigation:</em> randomized election timeouts (Raft), pre-vote, and leader leases to avoid flapping.</li>
+<li><strong>Async replication lag -&gt; stale reads / RPO risk:</strong> <em>Mitigation:</em> monitor and alert on replication lag; cap acceptable lag; for keys that can't tolerate it, use the strong path.</li>
+<li><strong>Conflict storms (multi-master same key):</strong> <em>Mitigation:</em> steer such keys to single-home strong, or use CRDTs so merges are automatic and bounded.</li>
+<li><strong>Region loss / cascading failover:</strong> rerouting all traffic to one surviving region can overload it. <em>Mitigation:</em> capacity headroom per region, load shedding, and degrade strong-&gt;session under pressure.</li>
+<li><strong>Clock skew breaking LWW:</strong> <em>Mitigation:</em> prefer logical clocks/version vectors over wall-clock; if using timestamps, bound skew (TrueTime-style uncertainty) or fall back to vector comparison.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>First to break: cross-region WAN bandwidth and strong-write throughput</strong> as writes 10x. Evolve by batching + compressing replication, adding more partitions (more independent Raft groups = more parallel consensus), and moving cold data to cheaper tiers.</li>
+<li><strong>More regions:</strong> adding regions increases quorum RTT options; pin each key's replica set to the geographically tightest regions that still satisfy residency + survive a loss, rather than spreading across all regions.</li>
+<li><strong>Distributed transactions:</strong> if multi-key atomicity is later required, layer <strong>two-phase commit over the per-partition consensus groups</strong> (Spanner-style: 2PC across Paxos groups) — but flag the latency cost and keep it opt-in.</li>
+<li><strong>Stronger global ordering:</strong> if linearizable global snapshots are needed, introduce a TrueTime-like bounded-uncertainty clock to commit-wait, trading a few ms of latency for external consistency — the multi-cloud angle: GCP exposes TrueTime-class clocks, AWS requires bounding NTP skew, so the implementation differs by cloud.</li>
+<li><strong>Adaptive consistency:</strong> auto-tune a key's consistency level from observed conflict rate and access locality, so hot single-region keys stay fast and contended keys get strong protection.</li>
+<li><strong>Tiered/archival storage + erasure coding:</strong> reduce the 3x replication cost for cold data via cross-region erasure coding, keeping the durability story at lower storage cost.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"How do you get read-your-writes without full linearizability?"</strong> Carry the client's last-written version token; serve a read locally only if that replica has caught up to the token, else forward to a fresher replica. Each user gets a monotonic view at near-local latency, without forcing a global order on all operations.</li>
+<li><strong>"Explain your quorum math."</strong> With N=3, choosing W=2 and R=2 gives R+W=4&gt;3, so every read quorum overlaps every write quorum by ≥1 replica and therefore returns the latest committed write — linearizable-ish reads. W=2 also means a committed write survives one region loss (RPO≈0).</li>
+<li><strong>"Two regions write the same key at the same time — what happens?"</strong> On the strong path that key is single-homed through one leader, so writes are serialized — no conflict. On the eventual path version vectors detect the concurrency; we resolve by LWW, CRDT merge, or surfacing siblings for app merge, and all replicas converge on heal.</li>
+<li><strong>"A region goes down mid-write — do I lose data?"</strong> If the write had committed (quorum acked, ≥2 regions), no — it's durable elsewhere; Raft re-elects a leader from survivors and continues. If the write hadn't reached quorum, it's not acknowledged as committed; the client retries. Strong path = RPO≈0.</li>
+<li><strong>"What if two regions are down?"</strong> A 3-replica strong partition loses its majority and <strong>refuses writes</strong> to avoid split-brain (CP choice); reads may serve stale from the survivor or also refuse depending on the level. The eventual path keeps accepting and reconciles later (AP).</li>
+<li><strong>"Why not just make everything strongly consistent?"</strong> Every strong write pays ~1 cross-region RTT (~100–150 ms) and loses availability without a quorum. Most data (profiles, feeds) doesn't need it, so forcing strong everywhere would needlessly 100x write latency and reduce availability — hence the per-key dial.</li>
+<li><strong>"Paxos or Raft — and why per-partition?"</strong> Either provides a consensus-ordered replicated log; Raft is simpler to reason about/operate. Per-partition (not one global group) so consensus throughput scales horizontally and a hot partition doesn't bottleneck the whole system.</li>
+<li><strong>"How do you do disaster recovery and verify it?"</strong> Continuous WAL archive + snapshots to cross-region, cross-cloud object storage for point-in-time restore; defined RPO/RTO; and scheduled game-days that actually kill a region to validate the numbers rather than assume them.</li>
+<li><strong>"How does multi-cloud (AWS+GCP) change this?"</strong> Inter-cloud RTT and egress cost are higher, clock guarantees differ (GCP TrueTime vs bounding NTP on AWS), and residency/failover spans providers — so I'd place quorum replicas thoughtfully across clouds and lean on logical clocks for portability.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Phase</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–7 min</td>
+<td>Clarify</td>
+<td>Nail per-use-case consistency, single vs multi-master writes, residency, RPO/RTO, scale</td>
+</tr>
+<tr>
+<td>7–10 min</td>
+<td>FR/NFR</td>
+<td>Establish the tunable consistency dial + CAP/PACELC stance up front</td>
+</tr>
+<tr>
+<td>10–16 min</td>
+<td>Estimation</td>
+<td>Cross-region RTT as the governing constraint; quorum config; WAN bandwidth; RPO/RTO</td>
+</tr>
+<tr>
+<td>16–22 min</td>
+<td>API + high-level arch</td>
+<td>Consistency header, per-partition consensus, geo-routing; draw both diagrams</td>
+</tr>
+<tr>
+<td>22–28 min</td>
+<td>Walk read &amp; write paths</td>
+<td>Strong (quorum, ~RTT), session (version token), eventual (local + async)</td>
+</tr>
+<tr>
+<td>28–44 min</td>
+<td>Deep dive</td>
+<td>(A) consistency dial: quorum + Raft + read-your-writes; (B) failover + conflict resolution + DR</td>
+</tr>
+<tr>
+<td>44–50 min</td>
+<td>Tradeoffs + failures</td>
+<td>CP vs AP per key, split-brain prevention, replication lag, clock skew</td>
+</tr>
+<tr>
+<td>50–56 min</td>
+<td>Scale 10x</td>
+<td>More partitions, 2PC-over-Paxos for txns, TrueTime, multi-cloud placement</td>
+</tr>
+<tr>
+<td>56–60 min</td>
+<td>Probes</td>
+<td>Quorum math, read-your-writes, two-region-down behavior</td>
+</tr>
+</tbody>
+</table></article></div></body></html>

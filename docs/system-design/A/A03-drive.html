@@ -1,0 +1,389 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>A03 — Design Google Drive / a file storage &amp; sync service</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="../index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="../index.html">&larr; All system-design questions</a><article class="doc"><h1>A03 — Design Google Drive / a file storage &amp; sync service</h1>
+<p>This tests whether you can build <strong>large-scale durable file storage with multi-device sync</strong>: chunk and deduplicate uploads by content hash, store bytes in object storage while keeping a <strong>strongly-consistent metadata plane</strong>, and keep many devices in sync via <strong>delta sync</strong> with sane <strong>conflict handling, versioning, sharing, and permissions</strong>. Google asks it because it forces the classic split between a <strong>bulk blob plane</strong> and a <strong>consistent metadata plane</strong>, plus the genuinely hard distributed-systems parts — sync protocol, conflict resolution, and a permission model that's both correct and fast — the layered ownership Staff is expected to lead.</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>Functional scope:</strong> Core = upload/download, <strong>sync across devices</strong>, <strong>sharing + permissions</strong>, <strong>versioning/conflict handling</strong>. Are <strong>real-time collaborative editing of file contents</strong> (that's Docs/OT-CRDT), <strong>full-text search</strong>, <strong>comments</strong>, and <strong>trash/retention policy</strong> in scope or deferrable? I'll keep file-granularity sync and defer in-document collaboration.</li>
+<li><strong>File characteristics:</strong> Max file size, typical mix (many small files vs few huge ones), total per-user quota. I'll assume files from KB to multi-GB, <strong>per-user quota ~GBs–TBs</strong>, billions of files overall.</li>
+<li><strong>Scale + read/write mix:</strong> Users, files/user, and the asymmetry — Drive is <strong>metadata-read-heavy</strong> (listing folders, checking changes) with <strong>bursty large blob writes</strong> on upload/sync. I'll assume <strong>~1B users</strong>, <strong>read:write on metadata ~100:1</strong>, blob writes bursty.</li>
+<li><strong>Sync model:</strong> Continuous background sync (file appears on all devices within seconds) vs manual? Online-only or <strong>offline edits that reconcile</strong> on reconnect? I'll assume continuous background sync <strong>with offline support</strong> (the hard, interesting case).</li>
+<li><strong>Consistency needs:</strong> Must <strong>metadata</strong> (the file tree, names, permissions) be <strong>strongly consistent</strong> (yes — two devices must agree on whether a file exists / who can read it)? Blob content can be eventually visible after upload completes. Confirm this split.</li>
+<li><strong>Conflict semantics:</strong> When two devices edit the same file offline, do we <strong>auto-merge</strong> (only possible for structured content), <strong>keep both versions</strong> (conflict copy), or last-writer-wins? For opaque files, "keep both / version" is the honest answer.</li>
+<li><strong>Sharing model:</strong> File/folder-level ACLs, link sharing, inheritance through the folder tree, groups/domains? I'll assume per-object ACLs + folder inheritance + link sharing.</li>
+<li><strong>Latency + durability:</strong> Targets — metadata ops p99 &lt; ~100 ms, change notification within seconds; <strong>11 nines durability</strong> (never lose a user's file). Confirm.</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> they want the <strong>blob plane vs metadata plane split</strong>, <strong>content-hash chunking + dedup</strong> (don't re-upload bytes you already have), and a <strong>delta-sync protocol driven by a per-user change log/version vector</strong>. The deepest signal is reasoning crisply about <strong>conflict resolution + versioning</strong> and a <strong>correct, fast permission model with inheritance</strong>. Calling out <strong>strong consistency on metadata, eventual on blob</strong> early is the Staff move. Deep dives: <strong>sync protocol + conflict resolution</strong> and <strong>chunking/dedup + permission model</strong>.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In-scope</strong></p>
+<ul>
+<li><strong>Upload/download</strong> files of arbitrary size via <strong>chunked, resumable</strong> transfer; <strong>content-hash dedup</strong> so identical chunks/files aren't re-stored or re-uploaded.</li>
+<li><strong>Metadata</strong>: a per-user <strong>file/folder tree</strong> (names, sizes, hashes, timestamps, parent links); list a folder; rename/move/delete.</li>
+<li><strong>Sync across devices</strong>: a device learns of changes and applies them via <strong>delta sync</strong> (transfer only changed chunks); near-real-time propagation.</li>
+<li><strong>Offline edits + reconcile</strong>: edit while disconnected; on reconnect, push local changes and <strong>resolve conflicts</strong>.</li>
+<li><strong>Versioning + conflict handling</strong>: keep prior versions; on a true conflict, <strong>preserve both</strong> (conflict copy) rather than silently lose data.</li>
+<li><strong>Sharing + permissions</strong>: per-file/folder <strong>ACLs</strong> (owner/editor/viewer), <strong>folder inheritance</strong>, <strong>link sharing</strong>; fast permission checks on every access.</li>
+</ul>
+<p><strong>Out-of-scope (defer)</strong></p>
+<ul>
+<li><strong>Real-time collaborative editing of contents</strong> (OT/CRDT — that's Docs; here sync is file-granular).</li>
+<li><strong>Full-text search / OCR / content indexing</strong> (adjacent retrieval system).</li>
+<li><strong>Comments, activity feed, fine-grained audit</strong> (adjacent).</li>
+<li><strong>Client-side encryption / DLP / retention-policy engine</strong> internals — acknowledge, defer.</li>
+</ul>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>~1B users; billions of files; <strong>metadata read:write ~100:1</strong>; blob writes bursty (uploads/sync).</td>
+</tr>
+<tr>
+<td>Latency</td>
+<td>Metadata ops (list/stat/check changes) p99 &lt; ~100 ms; <strong>change propagation to devices within seconds</strong>; blob throughput limited by client bandwidth.</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td><strong>99.95%+</strong> for metadata + download; uploads retriable (resumable) so brief unavailability is recoverable, not data-losing.</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td><strong>Metadata strongly consistent</strong> (file tree + permissions must agree across devices, read-your-writes); <strong>blob content eventually visible</strong> after upload commit.</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td><strong>11 nines</strong> for file content (erasure-coded, geo-replicated). A user's file must never be lost — durability is the product.</td>
+</tr>
+<tr>
+<td>Conflict safety</td>
+<td><strong>Never silently lose data</strong> — true conflicts produce a conflict copy / version, not an overwrite.</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>Per-object ACLs enforced on every access; permission checks fast (cached); encryption at rest + in transit.</td>
+</tr>
+<tr>
+<td>Cost</td>
+<td>Storage dominated by blob; <strong>dedup + compression</strong> materially cut it; metadata is small but high-QPS.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>USERS / FILES
+  ~1e9 users. Say avg ~10^3-10^4 files/user (mix of tiny + large)
+  -&gt; O(10^12-10^13) file/metadata rows total -&gt; metadata store must shard hard.
+
+BLOB STORAGE
+  Avg stored bytes/user ~ a few GB (free tier) to TB (paid). Take ~5 GB avg.
+  Total ~ 1e9 * 5 GB = ~5 EB raw before dedup/compression.
+  Dedup (cross-user identical files: installers, shared docs, photos) +
+  compression often saves a large fraction on common corpora -&gt; effective &lt; raw.
+  Chunk size ~4 MB (tradeoff below) -&gt; O(10^12+) chunks; chunk index is huge -&gt; shard by hash.
+
+METADATA QPS
+  Sync clients poll/stream for changes constantly. Listing + change-checks dominate.
+  Reads ~10^6+ QPS aggregate; writes (uploads/renames/moves) ~ 100x fewer.
+  Each metadata row ~ hundreds of bytes (name, parent, hash list, perms ptr, version).
+
+SYNC / CHANGE FEED
+  Each user has a monotonic change cursor. Devices fetch deltas since cursor.
+  Active devices ~ several per user; change-notification fanout via long-poll/push.
+  Change events/s ~ proportional to writes (~10^4/s) fanned to that user's devices.
+
+DELTA SYNC SAVINGS
+  Editing a 100 MB file changing 1 chunk =&gt; transfer ~4 MB, not 100 MB.
+  This is the whole point of chunk-level sync: bandwidth ~ changed bytes, not file size.
+
+CACHE
+  Hot metadata (recently-listed folders, permission lookups) cached -&gt; KV/Redis.
+  Chunk existence checks (dedup) cached -&gt; avoid re-uploading known chunks.
+</code></pre>
+<p>The decisive insight: <strong>separate the tiny-but-hot metadata plane from the huge-but-cold blob plane</strong>, and make sync transfer <strong>only changed chunks</strong> (delta sync), so bandwidth scales with <em>edits</em>, not file size. <strong>Content-hash dedup</strong> turns identical files/chunks across users into a single stored copy — a major storage win on common corpora.</p>
+<h2>5) API design</h2>
+<pre><code># Chunked upload with dedup (bytes bypass app servers)
+POST /files/upload/init  { path, size, chunkHashes[] }
+      -&gt; { uploadId, missingChunks:[hashes the server does NOT already have] }   # dedup check
+PUT  &lt;presigned-url-for-chunk&gt;   (client uploads ONLY missing chunks to blob store)
+POST /files/upload/commit { uploadId, fileMeta } -&gt; { fileId, version }          # metadata commit
+
+# Download
+GET  /files/{id}            -&gt; { meta, chunkList[] }      # then fetch chunks (CDN/blob, cacheable)
+GET  &lt;blob-url&gt;/chunk/{hash} -&gt; chunk bytes               [content-addressed, cacheable]
+
+# Metadata / tree
+GET  /folders/{id}/list     -&gt; { entries[] }
+POST /files/{id}/move       { newParentId }
+POST /files/{id}/rename     { name }
+DELETE /files/{id}          -&gt; { trashed:true }
+
+# Sync (delta, cursor-based)
+GET  /changes?cursor=...    -&gt; { changes:[ {fileId, op, version, hashList} ], nextCursor }
+GET  /changes/longpoll?cursor=...  -&gt; blocks until new changes (or push via WebSocket)
+
+# Sharing / permissions
+POST /files/{id}/share      { principal, role:VIEWER|EDITOR|OWNER }  -&gt; { aclVersion }
+GET  /files/{id}/permissions -&gt; { acl[], inheritedFrom }
+POST /files/{id}/sharelink  { role } -&gt; { token }
+</code></pre>
+<p>Two tells: upload is <strong>dedup-aware</strong> — <code>init</code> returns only the <code>missingChunks</code> so identical content is never re-sent — and sync is a <strong>cursor-based delta feed</strong> (<code>/changes?cursor=...</code>), the backbone that lets each device pull exactly what changed since it last synced. Chunk URLs are <strong>content-addressed</strong> (keyed by hash), so they cache and dedupe naturally.</p>
+<h2>6) Architecture — request &amp; data flow</h2>
+<p>THE centerpiece. ASCII layered flow first, then a tailored Mermaid flowchart.</p>
+<h3>(a) ASCII layered block diagram</h3>
+<pre><code>        Clients (desktop sync / mobile / web)
+          |                 |                      \
+   chunk PUT/GET      metadata ops            long-poll / WebSocket (changes)
+          |                 |                          |
+          v                 v                          v
+   [ CDN / Edge ]    [ Global LB / GeoDNS (anycast) ] --------------------+
+   (download chunks)        |                                             |
+          | content-        v                                             |
+          | addressed [ API Gateway ]  authN/Z, rate-limit                |
+          |                /        |             \                       |
+          |               v         v              v                      |
+          |      [ Upload Svc ] [ Metadata Svc ] [ Sync Svc ]            |
+          |       dedup check    tree + perms      change feed / push    |
+          |        (missing       |     ^            |    ^               |
+          |         chunks)       |     |            |    |               |
+   put    v   bytes               v     | reads      v    | tails         |
+   [ Blob / Chunk Store ]   [ Metadata DB ]      [ Change Log ]           |
+    content-addressed,       (sharded, STRONGLY    (per-user, monotonic   |
+    erasure-coded, 11 nines   consistent: tree,     version cursor;       |
+    keyed by chunkHash )      file-&gt;chunklist,      append on every       |
+          ^                   ACLs, versions )      metadata write )      |
+          |                        |     ^               |                |
+          | dedup: store           |     | permission    | notify         |
+          | each chunk once        |     | checks (cache)|                |
+          |                        v     |               v                |
+          |                 [ Permission / ACL Svc ]  [ Notifier / Push ] -+
+          |                  (object ACL + folder       fan-out change
+          |                   inheritance, cached)      to user's devices
+          |
+   == VERSIONING / CONFLICT (on commit &amp; on offline reconcile) ==
+   commit -&gt; compare client baseVersion vs server head:
+       same    -&gt; apply, bump version, append change log
+       diverged-&gt; CONFLICT: keep server head + create &quot;conflict copy&quot; version
+                  (never overwrite); both surface to all devices via change log
+</code></pre>
+<p><strong>Upload (with dedup) path.</strong> The client chunks the file and hashes each chunk, then calls Upload Svc <code>init</code> with the <strong>chunk hashes</strong>. The service checks the <strong>chunk index</strong> and returns only the <strong>missing chunks</strong>; the client uploads just those <strong>directly to the content-addressed Blob/Chunk Store</strong> (bytes bypass app servers; identical content stored once). On <code>commit</code>, <strong>Metadata Svc</strong> writes the file's <code>{path, parent, chunkList, size, version, aclPtr}</code> into the <strong>strongly-consistent Metadata DB</strong> and <strong>appends an event to the per-user Change Log</strong> (bumping the user's cursor). The <strong>Notifier</strong> pushes a change signal to the user's other devices.</p>
+<p><strong>Download path.</strong> Read file metadata from Metadata Svc (<code>chunkList</code>), then fetch chunks by <strong>content-addressed hash</strong> from the <strong>CDN/Blob store</strong> (cacheable, dedup-friendly). Permission is checked first via the <strong>ACL Svc</strong> (cached).</p>
+<p><strong>Sync (delta) path.</strong> Each device holds a <strong>cursor</strong>. It calls <code>/changes?cursor</code> (or holds a WebSocket/long-poll) and gets the <strong>delta</strong> of metadata changes since its cursor. For each changed file it fetches <strong>only the changed chunks</strong> (diff its local chunk list vs the new one) — bandwidth scales with edits, not file size. It then advances its cursor. The <strong>Change Log</strong> is the ordered source of truth that makes this convergent.</p>
+<p><strong>Conflict / versioning path.</strong> On <code>commit</code> (or offline reconcile), the server compares the client's <strong>baseVersion</strong> to the server's <strong>head</strong>. If unchanged, apply and bump version. If <strong>diverged</strong> (someone else changed it first), it's a <strong>conflict</strong>: keep the server head and create a <strong>conflict copy / new version</strong> — <strong>never silently overwrite</strong>. Both versions flow to all devices via the change log. Structured/text content <em>may</em> auto-merge; opaque files keep both.</p>
+<h3>(b) Mermaid flowchart</h3>
+<div class="mermaid">
+flowchart TD
+  client[Clients desktop/mobile/web] --> cdn[CDN / Edge - chunk download]
+  client --> lb[Global LB / GeoDNS anycast]
+  cdn -->|content-addressed| blob[(Blob / Chunk Store - dedup, 11 nines)]
+  lb --> gw[API Gateway authN/Z]
+
+  gw --> up[Upload Svc - dedup check]
+  gw --> meta[Metadata Svc - tree + commit]
+  gw --> sync[Sync Svc - delta feed / push]
+
+  up -->|missing chunks only| blob
+  up --> chunkidx[(Chunk Index - by hash)]
+  meta --> mdb[(Metadata DB - sharded, STRONGLY consistent)]
+  meta -->|append| clog[(Change Log - per-user cursor)]
+  meta --> acl[Permission / ACL Svc - inheritance, cached]
+
+  sync --> clog
+  sync --> notif[Notifier / Push]
+  notif -.->|change signal| client
+
+  meta -->|commit: baseVersion vs head| conflict{Diverged?}
+  conflict -->|no| applyv[Apply + bump version]
+  conflict -->|yes| copyv[Keep head + Conflict Copy version]
+  applyv --> clog
+  copyv --> clog
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<p><strong>Metadata DB — sharded, strongly-consistent store</strong> (a horizontally-partitioned transactional database; conceptually a Spanner-class system or sharded SQL with consensus). Core tables:</p>
+<pre><code>File:   { fileId(PK), ownerId, parentId, name, size, version,
+          chunkList:[chunkHash...], aclId, createdAt, updatedAt, trashed }
+Folder: { folderId(PK), ownerId, parentId, name, aclId, ... }
+ACL:    { aclId(PK), entries:[ {principal, role} ], inheritParent:bool }
+Change: { userId, seq(monotonic), fileId, op, version, ts }   # the change log
+Chunk:  { chunkHash(PK), refCount, size, storageLoc }          # dedup / GC
+</code></pre>
+<p><em>First-principles:</em> the <strong>file tree + permissions</strong> must be <strong>strongly consistent</strong> — two devices cannot disagree on whether a file exists, where it lives, or who can read it; moves/renames/permission changes are transactional. So this plane uses <strong>consensus-backed replication</strong> (R+W&gt;N quorum / Paxos-Raft groups) and is <strong>sharded by user/owner</strong> so each user's tree lives together for cheap listing and a coherent change cursor. It's small per row but huge in count -&gt; shard hard.</p>
+<p><strong>Blob / Chunk Store — content-addressed, erasure-coded object store.</strong> Each unique chunk stored <strong>once</strong>, keyed by its <strong>content hash</strong>; <code>refCount</code> tracks how many files reference it (for garbage collection). <em>Why:</em> file bytes are large, immutable-once-written, and benefit from <strong>dedup + cheap durable storage</strong> — exactly an erasure-coded object store. Content addressing gives <strong>dedup, integrity verification (hash = name), and natural CDN cacheability</strong> for free. Eventual visibility after commit is fine.</p>
+<p><strong>Change Log — append-only, per-user, monotonic sequence.</strong> The ordered record of every metadata mutation, with a per-user <strong>cursor</strong>. <em>First-principles:</em> sync correctness comes from a <strong>single authoritative order of changes per user</strong>; devices converge by replaying the log from their cursor. Storing it per-user keeps fan-out and cursoring cheap and bounds the scan.</p>
+<p><strong>Permission / ACL store — per-object ACL + folder inheritance, heavily cached.</strong> Resolved permission = object ACL combined up the <strong>folder ancestry</strong>. <em>Why cached:</em> checked on <strong>every</strong> access (read-massive), so resolved decisions are cached (with invalidation on ACL change); the source of truth lives transactionally with metadata so a permission revoke is strongly consistent.</p>
+<p><strong>Chunk size choice (~4 MB):</strong> smaller chunks -&gt; better dedup + cheaper delta sync (transfer less on small edits) but a <strong>bigger chunk index</strong> and more per-chunk overhead; larger chunks -&gt; smaller index but coarser dedup and bigger deltas. <strong>~4 MB</strong> is the usual sweet spot balancing index size against delta granularity.</p>
+<h2>8) Deep dive</h2>
+<p>The two cruxes are <strong>(A) sync protocol + conflict resolution</strong> (keep many devices convergent, handle offline edits, never lose data) and <strong>(B) chunking/dedup + the permission model</strong> (store bytes once, check access fast and correctly). Spend the most time here.</p>
+<p><strong>A. Sync protocol + conflict resolution.</strong></p>
+<ul>
+<li><strong>Cursor/version-vector delta sync:</strong> each user has a <strong>monotonic change log</strong>; each device tracks a <strong>cursor</strong> (last applied seq). To sync, a device pulls <code>changes since cursor</code>, applies them, and advances the cursor — guaranteeing <strong>convergence</strong> because everyone replays the same ordered log. Pushed via WebSocket/long-poll for <strong>seconds-level</strong> propagation; falls back to periodic poll.</li>
+<li><strong>Chunk-level delta transfer:</strong> when a file changes, the device diffs its <strong>local chunk list</strong> against the new chunk list and fetches <strong>only the differing chunks</strong> — editing one 4 MB chunk of a 100 MB file transfers ~4 MB. This is the bandwidth win that makes continuous sync practical.</li>
+<li><strong>Offline edits + reconcile:</strong> while offline, the device queues local mutations against a <strong>baseVersion</strong>. On reconnect it replays them; for each, the server compares <code>baseVersion</code> to the current <strong>head</strong>.</li>
+<li><strong>No divergence</strong> -&gt; apply, bump version, append to log.</li>
+<li><strong>Divergence (someone changed it first)</strong> -&gt; <strong>conflict</strong>. Policy: <strong>never silently overwrite</strong>. For opaque files, <strong>keep both</strong> as a "conflict copy" (and/or a new version) so no data is lost; for structured/text content, optionally <strong>auto-merge</strong> (line/3-way merge) — but the honest default for arbitrary files is keep-both.</li>
+<li><strong>Why not last-writer-wins for content:</strong> LWW silently destroys the loser's edits — unacceptable for user files. Versioning + conflict copies make conflicts <strong>visible and recoverable</strong>. (Real-time <em>character-level</em> merge is OT/CRDT territory — Docs — explicitly out of scope here; Drive is file-granular.)</li>
+<li><strong>Idempotency + ordering:</strong> mutations carry client-generated ids so retries are idempotent; the per-user log gives a total order so all devices converge to the same tree even with concurrent writers.</li>
+<li><strong>Move/rename correctness:</strong> these are <strong>metadata-only, transactional</strong> ops (no byte movement) — cheap and strongly consistent, which is why metadata is its own plane.</li>
+</ul>
+<p><strong>B. Chunking/dedup + permission model.</strong></p>
+<ul>
+<li><strong>Content-hash chunking + dedup:</strong> the client splits files into chunks and hashes each (content-defined chunking with rolling hashes helps deltas survive insertions). Upload <code>init</code> sends the hashes; the server replies with <strong>only the chunks it doesn't already have</strong>. Identical chunks <strong>across users</strong> (installers, shared media, common docs) are stored <strong>once</strong>, with a <strong>refCount</strong>. Result: storage and upload bandwidth both drop on common corpora; integrity is free (the hash <em>is</em> the name).</li>
+<li><strong>Garbage collection:</strong> deleting a file decrements chunk <code>refCount</code>s; chunks hit zero are GC'd (carefully, to avoid races with concurrent uploads referencing the same chunk — use grace periods / mark-and-sweep).</li>
+<li><strong>Permission model + inheritance:</strong> every object has an <strong>ACL</strong>; effective permission resolves the object's ACL <strong>combined with its folder ancestry</strong> (inheritance). A share grants a <code>{principal, role}</code>; <strong>link sharing</strong> mints a capability token. Checks happen on <strong>every</strong> access, so resolved decisions are <strong>cached</strong> with invalidation on ACL change; the authoritative ACL is <strong>strongly consistent</strong> with metadata so a <strong>revoke takes effect immediately</strong> (you must not be able to read a file the instant after access is revoked).</li>
+<li><strong>Inheritance cost vs correctness:</strong> walking ancestry per check is expensive at QPS, so cache resolved ACLs and <strong>invalidate the subtree</strong> on a permission change. For deep trees and groups, precompute/expand carefully — this is the classic "fast authorization at scale" problem (a Zanzibar-style relationship model is the principled large-scale answer; mention it).</li>
+<li><strong>Sharing across the tree:</strong> a folder shared with a user grants access to descendants via inheritance; moves re-evaluate effective permissions. Keep the <strong>owner</strong> distinct from editors/viewers for quota and deletion semantics.</li>
+</ul>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Choice &amp; why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Metadata vs blob</td>
+<td><strong>Two planes</strong> — strongly-consistent metadata, eventually-visible blob. Different consistency, scale, and cost; the foundational split.</td>
+</tr>
+<tr>
+<td>Metadata consistency</td>
+<td><strong>Strong (consensus / R+W&gt;N)</strong> — devices must agree on tree + permissions; moves/renames/revokes are transactional.</td>
+</tr>
+<tr>
+<td>Blob consistency</td>
+<td><strong>Eventual visibility after commit</strong> — bytes are immutable, content-addressed; staleness window is fine.</td>
+</tr>
+<tr>
+<td>Dedup</td>
+<td><strong>Content-hash chunk dedup</strong> — store identical chunks once; big storage + upload-bandwidth win; cost is a large chunk index + GC complexity.</td>
+</tr>
+<tr>
+<td>Sync model</td>
+<td><strong>Cursor/version-vector delta sync over a per-user change log</strong> — guarantees convergence; pushed for low latency.</td>
+</tr>
+<tr>
+<td>Conflict policy</td>
+<td><strong>Versioning + conflict copies, never silent LWW</strong> for opaque files — never lose user data; auto-merge only for structured content.</td>
+</tr>
+<tr>
+<td>Chunk size</td>
+<td><strong>~4 MB</strong> — balances dedup/delta granularity against chunk-index size + per-chunk overhead.</td>
+</tr>
+<tr>
+<td>Permission checks</td>
+<td><strong>Strongly-consistent ACL source + cached resolved decisions</strong> — correct revokes, fast checks; invalidate subtree on change.</td>
+</tr>
+<tr>
+<td>Move/rename</td>
+<td><strong>Metadata-only transactional ops</strong> — no byte movement; cheap and consistent.</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Hot user / shared folder (a huge team drive):</strong> metadata + permission checks concentrate. <em>Mitigation:</em> shard metadata by owner with hot-spot splitting; <strong>cache resolved ACLs</strong>; paginate listings; consider a relationship-based authz service for big shares.</li>
+<li><strong>Chunk index hot shard (popular chunk, e.g. a viral installer):</strong> dedup check + refCount contention. <em>Mitigation:</em> shard chunk index by hash (uniform), cache existence checks, batch refCount updates.</li>
+<li><strong>Conflict storms (two devices editing offline repeatedly):</strong> <em>Mitigation:</em> version-vector divergence detection + conflict copies; idempotent client mutation ids; converge via the ordered log.</li>
+<li><strong>GC race (deleting a chunk another upload is referencing):</strong> <em>Mitigation:</em> refCount with <strong>grace periods / mark-and-sweep</strong>, never delete a chunk an in-flight upload referenced.</li>
+<li><strong>Change-feed fan-out spike (mass share / bulk move):</strong> many devices need many changes. <em>Mitigation:</em> per-user change log + batched delta pulls; coalesce notifications; backpressure the notifier.</li>
+<li><strong>Permission revoke lag (security-critical):</strong> stale cached ACL lets a revoked user read. <em>Mitigation:</em> strongly-consistent ACL writes + <strong>immediate cache invalidation</strong> of the affected subtree; short TTLs as a backstop.</li>
+<li><strong>Metadata store as SPOF for a shard:</strong> <em>Mitigation:</em> consensus replication (quorum), multi-replica per shard, failover; the change log is durable so devices recover by re-syncing.</li>
+<li><strong>Large-file upload interrupted:</strong> <em>Mitigation:</em> <strong>resumable chunked upload</strong> — only missing chunks re-sent; commit is the atomic point.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>First thing that breaks: metadata QPS + shard hot spots</strong> at 10× users/files. <em>Evolve:</em> finer sharding (by user, then by subtree), more aggressive ACL/list caching, a dedicated <strong>relationship-based authorization</strong> service (Zanzibar-style) for sharing at scale.</li>
+<li><strong>Chunk index size (10× chunks).</strong> <em>Evolve:</em> tiered/sharded index by hash prefix, bloom filters for existence checks, region-local chunk indices.</li>
+<li><strong>Blob storage cost.</strong> <em>Evolve:</em> better dedup (content-defined chunking), compression, cold-tier rarely-accessed files, region-aware placement near the user.</li>
+<li><strong>Change-feed throughput.</strong> <em>Evolve:</em> partition the log per user/region, push via scalable pub/sub, coalesce bursts (a bulk move = one logical change set).</li>
+<li><strong>Multi-region:</strong> place each user's data + metadata near them; async geo-replicate blobs for durability; keep the user's metadata shard authoritative in one region (or use a globally-consistent metadata system for cross-region sharing).</li>
+<li><strong>Selective sync / streaming:</strong> for huge drives, don't sync everything — <strong>stream-on-demand</strong> (placeholder files materialized on open) so a device with 2 TB drive doesn't need 2 TB local.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"Two devices edit the same file offline — what happens on reconnect?"</strong> Each replays local mutations against a <strong>baseVersion</strong>; the server compares to head. No divergence -&gt; apply + version bump. Divergence -&gt; <strong>conflict</strong>: keep both as a <strong>conflict copy / new version</strong>, never silently overwrite. All devices learn both via the change log.</li>
+<li><strong>"Why not last-writer-wins?"</strong> It silently destroys the loser's edits — unacceptable for user files. Versioning + conflict copies make conflicts visible and recoverable. Character-level real-time merge is OT/CRDT (Docs), out of scope here.</li>
+<li><strong>"How do you avoid re-uploading a file someone already uploaded?"</strong> <strong>Content-hash dedup</strong>: the client sends chunk hashes; the server replies with only <strong>missing chunks</strong>. Identical chunks across users are stored once with a refCount.</li>
+<li><strong>"How does a device sync efficiently — does it re-download whole files?"</strong> No — <strong>delta sync</strong>: pull metadata changes since its <strong>cursor</strong> from the per-user change log, then fetch <strong>only the changed chunks</strong> (diff chunk lists). Bandwidth scales with edits, not file size.</li>
+<li><strong>"Strong or eventual consistency — where?"</strong> <strong>Strong</strong> on the metadata plane (tree + permissions: devices must agree, revokes must be immediate). <strong>Eventual</strong> on blob visibility after commit (immutable, content-addressed bytes).</li>
+<li><strong>"How do permission checks stay fast at QPS but still correct on revoke?"</strong> Source-of-truth ACL is strongly consistent with metadata; resolved decisions are <strong>cached</strong> and <strong>invalidated subtree-wide</strong> on change, so a revoke takes effect immediately while reads stay fast.</li>
+<li><strong>"How does folder inheritance work, and what's the cost?"</strong> Effective ACL = object ACL combined up the ancestry; walking ancestry per check is costly, so cache resolved ACLs and invalidate on change. At scale, a <strong>relationship-based authz</strong> (Zanzibar-style) model handles big shares.</li>
+<li><strong>"What chunk size and why?"</strong> ~4 MB — smaller improves dedup/delta granularity but bloats the chunk index and per-chunk overhead; ~4 MB balances both.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–3 min</td>
+<td>Frame it: <strong>two planes</strong> — strongly-consistent <strong>metadata</strong> (tree + permissions) and huge eventually-visible <strong>blob</strong> (content-addressed). State that split up front.</td>
+</tr>
+<tr>
+<td>3–9 min</td>
+<td><strong>Clarify:</strong> scope (file-granular sync; defer in-doc collab/search), file sizes, scale + read:write, sync model (continuous + <strong>offline</strong>), consistency split, conflict semantics, sharing model.</td>
+</tr>
+<tr>
+<td>9–14 min</td>
+<td><strong>FR + NFR + estimation:</strong> surface <strong>dedup</strong> (store chunks once) and <strong>delta sync</strong> (bandwidth ~ edits, not file size); size metadata QPS + blob EB.</td>
+</tr>
+<tr>
+<td>14–20 min</td>
+<td><strong>API + high-level architecture:</strong> draw the ASCII flow — dedup-aware chunked upload, content-addressed blob, strongly-consistent metadata + per-user change log, sync/notifier.</td>
+</tr>
+<tr>
+<td>20–24 min</td>
+<td>Walk the <strong>upload (dedup) path</strong>, <strong>delta-sync path</strong> (cursor -&gt; changes -&gt; changed chunks), and the <strong>conflict/versioning path</strong> (baseVersion vs head).</td>
+</tr>
+<tr>
+<td>24–44 min</td>
+<td><strong>Deep dive (the crux):</strong> (A) sync protocol + conflict resolution — change log/version vectors, offline reconcile, conflict copies, no silent LWW; (B) chunking/dedup + permission model — content hashing, refCount/GC, ACL inheritance + cached fast checks + immediate revoke. Most time here.</td>
+</tr>
+<tr>
+<td>44–50 min</td>
+<td><strong>Consistency model:</strong> strong metadata (consensus/quorum), eventual blob; transactional moves/renames/revokes; why each.</td>
+</tr>
+<tr>
+<td>50–55 min</td>
+<td><strong>Tradeoffs + bottlenecks:</strong> hot shared folders, chunk-index hot keys, conflict storms, GC races, revoke lag, resumable uploads.</td>
+</tr>
+<tr>
+<td>55–60 min</td>
+<td><strong>10× evolution + wrap:</strong> relationship-based authz at scale, selective/stream-on-demand sync, multi-region placement. Restate the big idea: <strong>split metadata (strong) from blob (content-addressed, deduped), drive sync off a per-user ordered change log with delta transfer, and resolve conflicts by versioning — never by silently losing bytes.</strong></td>
+</tr>
+</tbody>
+</table></article></div></body></html>
