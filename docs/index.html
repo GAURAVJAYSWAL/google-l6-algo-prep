@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Google L6 Algorithm Study · 211 problems, 31 patterns</title>
-<meta name="description" content="A rich, searchable study guide for Google Staff (L6) SWE algorithm interviews — 211 solved problems across 20 patterns with key insights, complexity, and how to explain each out loud.">
+<title>Google L6 Algorithm Study · 242 problems, 31 patterns</title>
+<meta name="description" content="A rich, searchable study guide for Google Staff (L6) SWE algorithm interviews — 242 solved problems across 20 patterns with key insights, complexity, and how to explain each out loud.">
 <style>
 :root{
   --bg:#f6f7fb; --card:#ffffff; --ink:#1e2430; --muted:#5b6573; --line:#e6e9f0;
@@ -171,43 +171,43 @@ a.codelink:hover{background:#1e293b;text-decoration:none}
     <div class="nav-group"><div class="nav-group-h">Foundations</div>
 <a class="nav-link" href="#phase1" data-key="phase1"><span class="nav-emoji">👣</span><span class="nav-title">Two-Pointer Warm-ups</span><span class="nav-count">5</span></a>
 <a class="nav-link" href="#arrays" data-key="arrays"><span class="nav-emoji">🧮</span><span class="nav-title">Arrays & Hashing</span><span class="nav-count">18</span></a>
-<a class="nav-link" href="#prefixsum2d" data-key="prefixsum2d"><span class="nav-emoji">📊</span><span class="nav-title">2D Prefix Sum</span><span class="nav-count">2</span></a>
+<a class="nav-link" href="#prefixsum2d" data-key="prefixsum2d"><span class="nav-emoji">📊</span><span class="nav-title">2D Prefix Sum</span><span class="nav-count">3</span></a>
 <a class="nav-link" href="#differencearray" data-key="differencearray"><span class="nav-emoji">➕</span><span class="nav-title">Difference Array</span><span class="nav-count">2</span></a>
-<a class="nav-link" href="#slidingwindow" data-key="slidingwindow"><span class="nav-emoji">🪟</span><span class="nav-title">Sliding Window</span><span class="nav-count">4</span></a>
-<a class="nav-link" href="#strings" data-key="strings"><span class="nav-emoji">🔤</span><span class="nav-title">Strings</span><span class="nav-count">16</span></a>
+<a class="nav-link" href="#slidingwindow" data-key="slidingwindow"><span class="nav-emoji">🪟</span><span class="nav-title">Sliding Window</span><span class="nav-count">5</span></a>
+<a class="nav-link" href="#strings" data-key="strings"><span class="nav-emoji">🔤</span><span class="nav-title">Strings</span><span class="nav-count">22</span></a>
 <a class="nav-link" href="#stringmatching" data-key="stringmatching"><span class="nav-emoji">🧬</span><span class="nav-title">String Matching</span><span class="nav-count">3</span></a>
-<a class="nav-link" href="#stack" data-key="stack"><span class="nav-emoji">🥞</span><span class="nav-title">Stack & Parsing</span><span class="nav-count">5</span></a>
+<a class="nav-link" href="#stack" data-key="stack"><span class="nav-emoji">🥞</span><span class="nav-title">Stack & Parsing</span><span class="nav-count">7</span></a>
 </div>
 <div class="nav-group"><div class="nav-group-h">Search & Structures</div>
 <a class="nav-link" href="#sorting" data-key="sorting"><span class="nav-emoji">🔃</span><span class="nav-title">Sorting Algorithms</span><span class="nav-count">5</span></a>
-<a class="nav-link" href="#binarysearch" data-key="binarysearch"><span class="nav-emoji">🔎</span><span class="nav-title">Binary Search</span><span class="nav-count">14</span></a>
-<a class="nav-link" href="#linkedlist" data-key="linkedlist"><span class="nav-emoji">🔗</span><span class="nav-title">Linked Lists</span><span class="nav-count">10</span></a>
-<a class="nav-link" href="#trees" data-key="trees"><span class="nav-emoji">🌳</span><span class="nav-title">Trees</span><span class="nav-count">9</span></a>
+<a class="nav-link" href="#binarysearch" data-key="binarysearch"><span class="nav-emoji">🔎</span><span class="nav-title">Binary Search</span><span class="nav-count">16</span></a>
+<a class="nav-link" href="#linkedlist" data-key="linkedlist"><span class="nav-emoji">🔗</span><span class="nav-title">Linked Lists</span><span class="nav-count">11</span></a>
+<a class="nav-link" href="#trees" data-key="trees"><span class="nav-emoji">🌳</span><span class="nav-title">Trees</span><span class="nav-count">18</span></a>
 <a class="nav-link" href="#treedp" data-key="treedp"><span class="nav-emoji">🎄</span><span class="nav-title">Tree DP / Rerooting</span><span class="nav-count">3</span></a>
 <a class="nav-link" href="#trie" data-key="trie"><span class="nav-emoji">🌲</span><span class="nav-title">Tries</span><span class="nav-count">3</span></a>
 <a class="nav-link" href="#heap" data-key="heap"><span class="nav-emoji">⛰️</span><span class="nav-title">Heap / Priority Queue</span><span class="nav-count">6</span></a>
 <a class="nav-link" href="#orderedset" data-key="orderedset"><span class="nav-emoji">🗂️</span><span class="nav-title">Ordered-Set / Stream</span><span class="nav-count">2</span></a>
 </div>
 <div class="nav-group"><div class="nav-group-h">Intervals & Backtracking</div>
-<a class="nav-link" href="#intervals" data-key="intervals"><span class="nav-emoji">📅</span><span class="nav-title">Intervals & Line Sweep</span><span class="nav-count">10</span></a>
-<a class="nav-link" href="#backtracking" data-key="backtracking"><span class="nav-emoji">🔙</span><span class="nav-title">Backtracking</span><span class="nav-count">9</span></a>
+<a class="nav-link" href="#intervals" data-key="intervals"><span class="nav-emoji">📅</span><span class="nav-title">Intervals & Line Sweep</span><span class="nav-count">11</span></a>
+<a class="nav-link" href="#backtracking" data-key="backtracking"><span class="nav-emoji">🔙</span><span class="nav-title">Backtracking</span><span class="nav-count">11</span></a>
 </div>
 <div class="nav-group"><div class="nav-group-h">Grids & Graphs</div>
-<a class="nav-link" href="#matrix" data-key="matrix"><span class="nav-emoji">🔲</span><span class="nav-title">Matrix</span><span class="nav-count">7</span></a>
-<a class="nav-link" href="#graphs" data-key="graphs"><span class="nav-emoji">🕸️</span><span class="nav-title">Graphs</span><span class="nav-count">19</span></a>
+<a class="nav-link" href="#matrix" data-key="matrix"><span class="nav-emoji">🔲</span><span class="nav-title">Matrix</span><span class="nav-count">9</span></a>
+<a class="nav-link" href="#graphs" data-key="graphs"><span class="nav-emoji">🕸️</span><span class="nav-title">Graphs</span><span class="nav-count">20</span></a>
 <a class="nav-link" href="#toposort" data-key="toposort"><span class="nav-emoji">🪢</span><span class="nav-title">Topological Sort</span><span class="nav-count">3</span></a>
 <a class="nav-link" href="#advancedgraphs" data-key="advancedgraphs"><span class="nav-emoji">🚀</span><span class="nav-title">Advanced Graphs (L6)</span><span class="nav-count">6</span></a>
 <a class="nav-link" href="#mst" data-key="mst"><span class="nav-emoji">🌉</span><span class="nav-title">Minimum Spanning Tree</span><span class="nav-count">2</span></a>
 </div>
 <div class="nav-group"><div class="nav-group-h">Optimization</div>
-<a class="nav-link" href="#greedy" data-key="greedy"><span class="nav-emoji">🤑</span><span class="nav-title">Greedy</span><span class="nav-count">3</span></a>
-<a class="nav-link" href="#dp" data-key="dp"><span class="nav-emoji">📐</span><span class="nav-title">Dynamic Programming</span><span class="nav-count">18</span></a>
+<a class="nav-link" href="#greedy" data-key="greedy"><span class="nav-emoji">🤑</span><span class="nav-title">Greedy</span><span class="nav-count">4</span></a>
+<a class="nav-link" href="#dp" data-key="dp"><span class="nav-emoji">📐</span><span class="nav-title">Dynamic Programming</span><span class="nav-count">19</span></a>
 <a class="nav-link" href="#knapsack" data-key="knapsack"><span class="nav-emoji">🎒</span><span class="nav-title">0/1 Knapsack & Subset-Sum</span><span class="nav-count">2</span></a>
 <a class="nav-link" href="#intervaldp" data-key="intervaldp"><span class="nav-emoji">🎈</span><span class="nav-title">Interval DP</span><span class="nav-count">3</span></a>
 <a class="nav-link" href="#bitmaskdp" data-key="bitmaskdp"><span class="nav-emoji">🎭</span><span class="nav-title">Bitmask / Subset DP</span><span class="nav-count">3</span></a>
 </div>
 <div class="nav-group"><div class="nav-group-h">Math & Design</div>
-<a class="nav-link" href="#bitmath" data-key="bitmath"><span class="nav-emoji">🔢</span><span class="nav-title">Bit & Math</span><span class="nav-count">8</span></a>
+<a class="nav-link" href="#bitmath" data-key="bitmath"><span class="nav-emoji">🔢</span><span class="nav-title">Bit & Math</span><span class="nav-count">9</span></a>
 <a class="nav-link" href="#segmenttree" data-key="segmenttree"><span class="nav-emoji">🌴</span><span class="nav-title">Segment Tree / BIT</span><span class="nav-count">2</span></a>
 <a class="nav-link" href="#design" data-key="design"><span class="nav-emoji">🏗️</span><span class="nav-title">Design</span><span class="nav-count">9</span></a>
 </div>
@@ -218,50 +218,50 @@ a.codelink:hover{background:#1e293b;text-decoration:none}
       <h1>📚 Google Staff (L6) — Algorithm &amp; Data-Structure Study Guide</h1>
       <p class="sub">Every problem from the prep tracker, solved and explained for interview performance: the <b>key insight</b>, a step-by-step <b>approach</b>, <b>complexity</b>, gotchas, and exactly how to <b>explain it out loud</b>. Each card links to the runnable Java and the LeetCode problem.</p>
       <div class="stats">
-        <div class="stat"><div class="n">211</div><div class="l">Problems solved</div></div>
+        <div class="stat"><div class="n">242</div><div class="l">Problems solved</div></div>
         <div class="stat"><div class="n">31</div><div class="l">Patterns / chapters</div></div>
-        <div class="stat"><div class="n">25</div><div class="l">Easy</div></div>
-        <div class="stat"><div class="n">130</div><div class="l">Medium</div></div>
-        <div class="stat"><div class="n">56</div><div class="l">Hard</div></div>
+        <div class="stat"><div class="n">38</div><div class="l">Easy</div></div>
+        <div class="stat"><div class="n">143</div><div class="l">Medium</div></div>
+        <div class="stat"><div class="n">61</div><div class="l">Hard</div></div>
       </div>
       <div class="cta">
         <a href="#phase1">▶ Start studying</a>
         <a class="ghost" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep" target="_blank" rel="noopener">⌨️ Browse the Java solutions</a>
         <a class="ghost" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/raw/main/google_l6_prep_tracker.xlsx" target="_blank" rel="noopener">📊 Download the tracker</a>
       </div>
-      <div class="legend"><span class="badge b-staff">🟥 Staff-tagged <b>7</b></span> <span class="badge b-l6">🟪 L6 differentiator <b>2</b></span> <span class="badge b-sig">🟦 Google signature <b>40</b></span> <span class="badge b-fav">⭐ Google fav <b>34</b></span> <span class="badge b-tagged">🔹 Google-tagged <b>50</b></span> <span class="badge b-core">⚪ Core <b>49</b></span> <span class="badge b-gap">◻️ Gap-fill <b>27</b></span> <span class="badge b-new">🆕 Recent 2025-26 <b>1</b></span> <span class="badge b-reported">📌 Reported L6 <b>1</b></span></div>
+      <div class="legend"><span class="badge b-staff">🟥 Staff-tagged <b>7</b></span> <span class="badge b-l6">🟪 L6 differentiator <b>2</b></span> <span class="badge b-sig">🟦 Google signature <b>43</b></span> <span class="badge b-fav">⭐ Google fav <b>39</b></span> <span class="badge b-tagged">🔹 Google-tagged <b>63</b></span> <span class="badge b-core">⚪ Core <b>57</b></span> <span class="badge b-gap">◻️ Gap-fill <b>27</b></span> <span class="badge b-new">🆕 Recent 2025-26 <b>1</b></span> <span class="badge b-reported">📌 Reported L6 <b>3</b></span></div>
     </section>
 
     <div class="chgrid">
       <a class="chcard" href="#phase1"><span class="chcard-emoji">👣</span><span class="chcard-title">Two-Pointer Warm-ups</span><span class="chcard-count">5 problems</span></a>
 <a class="chcard" href="#arrays"><span class="chcard-emoji">🧮</span><span class="chcard-title">Arrays & Hashing</span><span class="chcard-count">18 problems</span></a>
-<a class="chcard" href="#prefixsum2d"><span class="chcard-emoji">📊</span><span class="chcard-title">2D Prefix Sum</span><span class="chcard-count">2 problems</span></a>
+<a class="chcard" href="#prefixsum2d"><span class="chcard-emoji">📊</span><span class="chcard-title">2D Prefix Sum</span><span class="chcard-count">3 problems</span></a>
 <a class="chcard" href="#differencearray"><span class="chcard-emoji">➕</span><span class="chcard-title">Difference Array</span><span class="chcard-count">2 problems</span></a>
-<a class="chcard" href="#slidingwindow"><span class="chcard-emoji">🪟</span><span class="chcard-title">Sliding Window</span><span class="chcard-count">4 problems</span></a>
-<a class="chcard" href="#strings"><span class="chcard-emoji">🔤</span><span class="chcard-title">Strings</span><span class="chcard-count">16 problems</span></a>
+<a class="chcard" href="#slidingwindow"><span class="chcard-emoji">🪟</span><span class="chcard-title">Sliding Window</span><span class="chcard-count">5 problems</span></a>
+<a class="chcard" href="#strings"><span class="chcard-emoji">🔤</span><span class="chcard-title">Strings</span><span class="chcard-count">22 problems</span></a>
 <a class="chcard" href="#stringmatching"><span class="chcard-emoji">🧬</span><span class="chcard-title">String Matching</span><span class="chcard-count">3 problems</span></a>
-<a class="chcard" href="#stack"><span class="chcard-emoji">🥞</span><span class="chcard-title">Stack & Parsing</span><span class="chcard-count">5 problems</span></a>
+<a class="chcard" href="#stack"><span class="chcard-emoji">🥞</span><span class="chcard-title">Stack & Parsing</span><span class="chcard-count">7 problems</span></a>
 <a class="chcard" href="#sorting"><span class="chcard-emoji">🔃</span><span class="chcard-title">Sorting Algorithms</span><span class="chcard-count">5 problems</span></a>
-<a class="chcard" href="#binarysearch"><span class="chcard-emoji">🔎</span><span class="chcard-title">Binary Search</span><span class="chcard-count">14 problems</span></a>
-<a class="chcard" href="#linkedlist"><span class="chcard-emoji">🔗</span><span class="chcard-title">Linked Lists</span><span class="chcard-count">10 problems</span></a>
-<a class="chcard" href="#trees"><span class="chcard-emoji">🌳</span><span class="chcard-title">Trees</span><span class="chcard-count">9 problems</span></a>
+<a class="chcard" href="#binarysearch"><span class="chcard-emoji">🔎</span><span class="chcard-title">Binary Search</span><span class="chcard-count">16 problems</span></a>
+<a class="chcard" href="#linkedlist"><span class="chcard-emoji">🔗</span><span class="chcard-title">Linked Lists</span><span class="chcard-count">11 problems</span></a>
+<a class="chcard" href="#trees"><span class="chcard-emoji">🌳</span><span class="chcard-title">Trees</span><span class="chcard-count">18 problems</span></a>
 <a class="chcard" href="#treedp"><span class="chcard-emoji">🎄</span><span class="chcard-title">Tree DP / Rerooting</span><span class="chcard-count">3 problems</span></a>
 <a class="chcard" href="#trie"><span class="chcard-emoji">🌲</span><span class="chcard-title">Tries</span><span class="chcard-count">3 problems</span></a>
 <a class="chcard" href="#heap"><span class="chcard-emoji">⛰️</span><span class="chcard-title">Heap / Priority Queue</span><span class="chcard-count">6 problems</span></a>
 <a class="chcard" href="#orderedset"><span class="chcard-emoji">🗂️</span><span class="chcard-title">Ordered-Set / Stream</span><span class="chcard-count">2 problems</span></a>
-<a class="chcard" href="#intervals"><span class="chcard-emoji">📅</span><span class="chcard-title">Intervals & Line Sweep</span><span class="chcard-count">10 problems</span></a>
-<a class="chcard" href="#backtracking"><span class="chcard-emoji">🔙</span><span class="chcard-title">Backtracking</span><span class="chcard-count">9 problems</span></a>
-<a class="chcard" href="#matrix"><span class="chcard-emoji">🔲</span><span class="chcard-title">Matrix</span><span class="chcard-count">7 problems</span></a>
-<a class="chcard" href="#graphs"><span class="chcard-emoji">🕸️</span><span class="chcard-title">Graphs</span><span class="chcard-count">19 problems</span></a>
+<a class="chcard" href="#intervals"><span class="chcard-emoji">📅</span><span class="chcard-title">Intervals & Line Sweep</span><span class="chcard-count">11 problems</span></a>
+<a class="chcard" href="#backtracking"><span class="chcard-emoji">🔙</span><span class="chcard-title">Backtracking</span><span class="chcard-count">11 problems</span></a>
+<a class="chcard" href="#matrix"><span class="chcard-emoji">🔲</span><span class="chcard-title">Matrix</span><span class="chcard-count">9 problems</span></a>
+<a class="chcard" href="#graphs"><span class="chcard-emoji">🕸️</span><span class="chcard-title">Graphs</span><span class="chcard-count">20 problems</span></a>
 <a class="chcard" href="#toposort"><span class="chcard-emoji">🪢</span><span class="chcard-title">Topological Sort</span><span class="chcard-count">3 problems</span></a>
 <a class="chcard" href="#advancedgraphs"><span class="chcard-emoji">🚀</span><span class="chcard-title">Advanced Graphs (L6)</span><span class="chcard-count">6 problems</span></a>
 <a class="chcard" href="#mst"><span class="chcard-emoji">🌉</span><span class="chcard-title">Minimum Spanning Tree</span><span class="chcard-count">2 problems</span></a>
-<a class="chcard" href="#greedy"><span class="chcard-emoji">🤑</span><span class="chcard-title">Greedy</span><span class="chcard-count">3 problems</span></a>
-<a class="chcard" href="#dp"><span class="chcard-emoji">📐</span><span class="chcard-title">Dynamic Programming</span><span class="chcard-count">18 problems</span></a>
+<a class="chcard" href="#greedy"><span class="chcard-emoji">🤑</span><span class="chcard-title">Greedy</span><span class="chcard-count">4 problems</span></a>
+<a class="chcard" href="#dp"><span class="chcard-emoji">📐</span><span class="chcard-title">Dynamic Programming</span><span class="chcard-count">19 problems</span></a>
 <a class="chcard" href="#knapsack"><span class="chcard-emoji">🎒</span><span class="chcard-title">0/1 Knapsack & Subset-Sum</span><span class="chcard-count">2 problems</span></a>
 <a class="chcard" href="#intervaldp"><span class="chcard-emoji">🎈</span><span class="chcard-title">Interval DP</span><span class="chcard-count">3 problems</span></a>
 <a class="chcard" href="#bitmaskdp"><span class="chcard-emoji">🎭</span><span class="chcard-title">Bitmask / Subset DP</span><span class="chcard-count">3 problems</span></a>
-<a class="chcard" href="#bitmath"><span class="chcard-emoji">🔢</span><span class="chcard-title">Bit & Math</span><span class="chcard-count">8 problems</span></a>
+<a class="chcard" href="#bitmath"><span class="chcard-emoji">🔢</span><span class="chcard-title">Bit & Math</span><span class="chcard-count">9 problems</span></a>
 <a class="chcard" href="#segmenttree"><span class="chcard-emoji">🌴</span><span class="chcard-title">Segment Tree / BIT</span><span class="chcard-count">2 problems</span></a>
 <a class="chcard" href="#design"><span class="chcard-emoji">🏗️</span><span class="chcard-title">Design</span><span class="chcard-count">9 problems</span></a>
     </div>
@@ -967,7 +967,7 @@ for (int read = 0; read &lt; nums.length; read++) {
 <section class="chapter" id="prefixsum2d" data-title="2D Prefix Sum &amp; Range Queries">
   <h2 class="chapter-title"><span class="emoji">📊</span> 2D Prefix Sum &amp; Range Queries</h2>
   <p class="lede">Range-sum-over-a-grid is a deceptively deep design family: the immutable case is a one-time prefix build plus O(1) inclusion-exclusion, while the mutable case forces you to reach for a 2D Fenwick (BIT) tree. Google L6 loves these because they probe whether you can pick the right data structure for the read/write mix and reason cleanly about per-operation complexity — exactly the trade-off conversation that separates a Staff candidate from a strong mid-level one.</p>
-  <p class="source">Source: <em>High-ROI Staff gap (curated 2026)</em> &middot; <span class="count">2 problems</span></p>
+  <p class="source">Source: <em>High-ROI Staff gap (curated 2026)</em> &middot; <span class="count">3 problems</span></p>
 
   <div class="panel">
     <h3>🎯 Recognition signals</h3>
@@ -1026,6 +1026,12 @@ int pre(int r, int c) {                            // sum of [0..r-1][0..c-1]
             <td><span class="badge b-gap">◻️ Gap-fill</span></td>
             <td>2D Fenwick / BIT</td>
             <td>update O(log m·log n) / query O(log m·log n)</td><td>O(mn)</td></tr>
+        <tr><td>3</td><td>Number of Submatrices That Sum to Target</td>
+            <td><a class="lc" href="https://leetcode.com/problems/number-of-submatrices-that-sum-to-target/" target="_blank" rel="noopener">LC 1074 ↗</a></td>
+            <td><span class="pill diff-hard">Hard</span></td>
+            <td><span class="badge b-reported">📌 Reported L6</span></td>
+            <td>Row-band collapse + prefix-sum hashmap</td>
+            <td>O(rows²·cols)</td><td>O(cols)</td></tr>
       </tbody>
     </table>
   </div>
@@ -1069,6 +1075,26 @@ int pre(int r, int c) {                            // sum of [0..r-1][0..c-1]
     <div class="block gotcha"><strong>⚠️ Gotchas.</strong> You must store deltas, not absolute values — a Fenwick tree only knows how to <em>add</em>; setting a cell means adding <code>(new - old)</code>, which is why the <code>vals</code> mirror exists. Off-by-one: the tree is 1-indexed, so update loops start at <code>row+1</code>/<code>col+1</code>. Building via O(mn) updates is the simple route (good enough at interview scale); mention that a smarter O(mn) construction exists if pushed. Don't forget the inner loop must reset <code>j</code> each outer iteration in both walks.</div>
     <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "With updates, a frozen prefix grid is wrong the instant a cell changes, and rebuilding is O(mn) per write. So I use a 2D Fenwick tree: each node aggregates a power-of-two-sized rectangle keyed off the low bits of its indices. An update touches O(log m · log n) nodes, and a prefix sum reads O(log m · log n) nodes; the rectangle query is the same inclusion-exclusion over four prefixes. To update a cell I add the delta from its old value, so I keep a mirror of the raw values. Both operations are poly-logarithmic, which is what we want when reads and writes are both frequent."</div>
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/prefixsum2d/RangeSumQuery2DMutable.java" target="_blank" rel="noopener">📄 RangeSumQuery2DMutable.java</a>
+  </article>
+
+  <article class="problem" data-name="number of submatrices that sum to target" data-lc="1074">
+    <h4 class="problem-h"><span class="num">3</span> Number of Submatrices That Sum to Target
+      <a class="lc" href="https://leetcode.com/problems/number-of-submatrices-that-sum-to-target/" target="_blank" rel="noopener">LC 1074 ↗</a>
+      <span class="pill diff-hard">Hard</span>
+      <span class="badge b-reported">📌 Reported L6</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Count the non-empty submatrices (contiguous blocks of rows and columns) whose element sum equals a given target.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> A submatrix is pinned by its top/bottom rows and left/right columns. <strong>Fix the vertical band</strong> (top, bottom) and collapse each column to its sum over those rows: the 2-D shape becomes a 1-D array <code>colSum[]</code>, and any submatrix in this band is just a contiguous <em>subarray</em> of it. Counting subarrays with sum == target is the classic 1-D "subarray sum equals k" — walk a running prefix and, at each position, add the count of earlier prefixes equal to <code>prefix − target</code>, since each marks a left boundary closing a window summing to target. Summing over all O(rows²) bands covers every submatrix exactly once.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>For each <code>top</code> row, start a fresh <code>colSum[cols]</code> of zeros.</li>
+      <li>Extend <code>bottom</code> downward, folding <code>matrix[bottom]</code> into <code>colSum</code> in place (no rebuild from scratch).</li>
+      <li>For the current band, count subarrays of <code>colSum</code> summing to target via a prefix-sum <code>HashMap</code> seeded with <code>{0:1}</code>; add to the running total.</li>
+      <li>Return the accumulated count.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(rows²·cols) — O(rows²) bands, each scanned across cols once</span> <span class="chip space">💾 Space O(cols) — the colSum array plus the prefix-count map (≤ cols+1 entries)</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Seed the prefix map with <code>{0:1}</code> so windows starting at index 0 are counted. Extending the band in place (<code>colSum[c] += matrix[bottom][c]</code>) rather than re-summing the rows is what keeps each band O(cols), not O(rows·cols). Negative values and duplicate sums are fine — the HashMap counts <em>multiplicities</em> of each prefix, so use <code>merge(prefix, 1, +)</code>, not a set.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "I collapse one dimension: fixing a top and bottom row turns the band into a 1-D array of column sums, and then I'm just counting contiguous subarrays that hit the target — the prefix-sum-with-hashmap trick from 'subarray sum equals k'. Iterating all row pairs is O(rows²), and I grow the band incrementally so each pair costs O(cols), giving O(rows²·cols). If columns were the smaller dimension I'd fix column pairs instead to make it O(cols²·rows)."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/prefixsum2d/NumberOfSubmatricesThatSumToTarget.java" target="_blank" rel="noopener">📄 NumberOfSubmatricesThatSumToTarget.java</a>
   </article>
 
   <div class="panel practice">
@@ -1202,7 +1228,7 @@ return true;</code></pre>
 <section class="chapter" id="slidingwindow" data-title="Two Pointers &amp; Sliding Window">
   <h2 class="chapter-title"><span class="emoji">🪟</span> Two Pointers &amp; Sliding Window</h2>
   <p class="lede">Sliding window is the technique for "find the best/longest/shortest contiguous run satisfying some constraint" — you maintain a window <code>[left, right]</code> and amortize the work so each element enters and leaves at most once, turning an O(n²) scan into O(n). It is high-ROI for Google L6 because the same expand-right / shrink-left skeleton, parameterized by a constraint check and a maintained aggregate (a frequency array, a count of satisfied characters, or a window sum), solves a whole cluster of string and array problems — and interviewers prize a candidate who can state the loop invariant cleanly.</p>
-  <p class="source">Source: <em>Prep Tracker</em> tab · <span class="count">4 problems</span></p>
+  <p class="source">Source: <em>Prep Tracker</em> tab · <span class="count">5 problems</span></p>
 
   <div class="panel">
     <h3>🎯 Recognition signals</h3>
@@ -1259,6 +1285,11 @@ return best;</code></pre>
             <td><span class="pill diff-hard">Hard</span></td>
             <td><span class="badge b-fav">⭐ Google fav</span></td>
             <td>Window + need/window maps + formed counter</td><td>O(|s| + |t|)</td><td>O(|s| + |t|)</td></tr>
+        <tr><td>5</td><td>Find All Anagrams in a String</td>
+            <td><a class="lc" href="https://leetcode.com/problems/find-all-anagrams-in-a-string/" target="_blank" rel="noopener">LC 438 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-fav">⭐ Google fav</span></td>
+            <td>Fixed window + freq match counter</td><td>O(n)</td><td>O(1)</td></tr>
       </tbody>
     </table>
   </div>
@@ -1345,6 +1376,26 @@ return best;</code></pre>
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/slidingwindow/MinimumWindowSubstring.java" target="_blank" rel="noopener">📄 MinimumWindowSubstring.java</a>
   </article>
 
+  <article class="problem" data-name="find all anagrams in a string" data-lc="438">
+    <h4 class="problem-h"><span class="num">5</span> Find All Anagrams in a String
+      <a class="lc" href="https://leetcode.com/problems/find-all-anagrams-in-a-string/" target="_blank" rel="noopener">LC 438 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-fav">⭐ Google fav</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Return every start index in <code>s</code> where a window of length <code>|p|</code> is a permutation (anagram) of <code>p</code>.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> The window is <em>fixed-size</em> (<code>|p|</code>), so each slide is exactly one character entering and one leaving. Rather than re-comparing all 26 frequency buckets every step, maintain <code>matches</code> = the number of letters whose window count exactly equals the need. Each single-bucket update only ever crosses or lands on equality, so you adjust <code>matches</code> by ±1; <code>matches == 26</code> means the window is an anagram.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Build <code>need[26]</code> from <code>p</code>; pre-seed <code>matches</code> by counting letters absent from <code>p</code> (count 0 == need 0).</li>
+      <li>For each <code>i</code>, add <code>s[i]</code>: if <code>window[in] == need[in]</code> before the bump, <code>matches--</code>; increment; if now equal, <code>matches++</code>.</li>
+      <li>If <code>i - m &gt;= 0</code>, remove the char that fell out at index <code>i-m</code> with the symmetric ±1 update.</li>
+      <li>When <code>matches == 26</code>, record start index <code>i - m + 1</code>.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n) — n window steps, each O(1) work (no 26-bucket rescan)</span> <span class="chip space">💾 Space O(1) — two fixed 26-element frequency arrays</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Compare against <code>need</code> with <code>==</code> both <em>before</em> and <em>after</em> each count change so the ±1 bookkeeping is exact — adjusting only one side drifts <code>matches</code>. Pre-seeding the letters absent from <code>p</code> (where 0 already equals 0) is essential, or <code>matches</code> can never reach 26. If <code>|p| &gt; |s|</code> there are no windows — return empty early.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Because the window length is fixed at |p|, every step swaps one char in and one out. I keep a single counter of how many of the 26 letters currently match their required frequency, nudging it by ±1 as each affected bucket crosses equality, instead of re-scanning all 26. When all 26 match, the window is an anagram. That's O(1) per slide, O(n) overall."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/slidingwindow/FindAllAnagramsInAString.java" target="_blank" rel="noopener">📄 FindAllAnagramsInAString.java</a>
+  </article>
+
   <div class="panel practice">
     <h3>🔁 Practice plan</h3>
     <p>Internalize the variable-window skeleton first, then notice how each problem only swaps the <em>maintained summary</em> and the <em>shrink condition</em>. Order: re-derive <strong>Longest Substring Without Repeating</strong> blind (the cleanest "longest valid" template with the last-seen-index jump), then <strong>Longest Repeating Character Replacement</strong> (the subtle never-shrink-<code>maxFreq</code> argument), then <strong>Frequency of the Most Frequent Element</strong> (sort-to-unlock-a-window plus the <code>long</code> overflow), and finally the boss, <strong>Minimum Window Substring</strong> (the <code>need</code>/<code>window</code>/<code>formed</code> machinery and "shrink while valid" recording). Google-favourite follow-ups to rehearse: <em>Longest Substring with At Most K Distinct Characters</em> (LC 340), <em>Permutation in String / Find All Anagrams</em> (fixed-size window variant, LC 567 / 438), and <em>Minimum Size Subarray Sum</em> (LC 209) as the shortest-valid counterpart.</p>
@@ -1361,7 +1412,7 @@ return best;</code></pre>
 <section class="chapter" id="strings" data-title="Strings">
   <h2 class="chapter-title"><span class="emoji">🔤</span> Strings</h2>
   <p class="lede">String problems are the connective tissue of a Google interview: they hide hash-map counting, stack parsing, two-pointer expansion, greedy packing, and clever simulation behind innocent-looking text. The signature L6 twist is rarely the algorithm itself but the framing — index bookkeeping against the <em>original</em> string, carrying state across repeated calls, or memoizing a row shape — where a clean, edge-case-proof implementation separates a hire from a no-hire.</p>
-  <p class="source">Source: <em>Prep Tracker</em> &amp; <em>Deep Research Adds</em> tabs · <span class="count">16 problems</span></p>
+  <p class="source">Source: <em>Prep Tracker</em> &amp; <em>Deep Research Adds</em> tabs · <span class="count">22 problems</span></p>
 
   <div class="panel">
     <h3>🎯 Recognition signals</h3>
@@ -1484,6 +1535,36 @@ int len = Math.max(expand(s, i, i), expand(s, i, i + 1)); // odd + even centers<
             <td><span class="pill diff-hard">Hard</span></td>
             <td><span class="badge b-fav">⭐ Google fav</span></td>
             <td>Greedy pack + space distribution</td><td>O(n)</td><td>O(n)</td></tr>
+        <tr><td>17</td><td>Ransom Note</td>
+            <td><a class="lc" href="https://leetcode.com/problems/ransom-note/" target="_blank" rel="noopener">LC 383 ↗</a></td>
+            <td><span class="pill diff-easy">Easy</span></td>
+            <td><span class="badge b-core">⚪ Core</span></td>
+            <td>Frequency count</td><td>O(m+n)</td><td>O(1)</td></tr>
+        <tr><td>18</td><td>Longest Palindrome</td>
+            <td><a class="lc" href="https://leetcode.com/problems/longest-palindrome/" target="_blank" rel="noopener">LC 409 ↗</a></td>
+            <td><span class="pill diff-easy">Easy</span></td>
+            <td><span class="badge b-core">⚪ Core</span></td>
+            <td>Char counts, one odd center</td><td>O(n)</td><td>O(1)</td></tr>
+        <tr><td>19</td><td>Long Pressed Name</td>
+            <td><a class="lc" href="https://leetcode.com/problems/long-pressed-name/" target="_blank" rel="noopener">LC 925 ↗</a></td>
+            <td><span class="pill diff-easy">Easy</span></td>
+            <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
+            <td>Two-pointer match</td><td>O(|typed|)</td><td>O(1)</td></tr>
+        <tr><td>20</td><td>String to Integer (atoi)</td>
+            <td><a class="lc" href="https://leetcode.com/problems/string-to-integer-atoi/" target="_blank" rel="noopener">LC 8 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-fav">⭐ Google fav</span></td>
+            <td>Scan + overflow clamp</td><td>O(n)</td><td>O(1)</td></tr>
+        <tr><td>21</td><td>Expressive Words</td>
+            <td><a class="lc" href="https://leetcode.com/problems/expressive-words/" target="_blank" rel="noopener">LC 809 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
+            <td>Run-length group compare</td><td>O(|s|·|words|)</td><td>O(1)</td></tr>
+        <tr><td>22</td><td>Minimum Window Subsequence</td>
+            <td><a class="lc" href="https://leetcode.com/problems/minimum-window-subsequence/" target="_blank" rel="noopener">LC 727 ↗</a></td>
+            <td><span class="pill diff-hard">Hard</span></td>
+            <td><span class="badge b-reported">📌 Reported L6</span></td>
+            <td>Two-pointer forward + shrink-back</td><td>O(|s|·|t|)</td><td>O(1)</td></tr>
       </tbody>
     </table>
   </div>
@@ -1807,6 +1888,126 @@ int len = Math.max(expand(s, i, i), expand(s, i, i + 1)); // odd + even centers<
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/strings/TextJustification.java" target="_blank" rel="noopener">📄 TextJustification.java</a>
   </article>
 
+  <article class="problem" data-name="ransom note" data-lc="383">
+    <h4 class="problem-h"><span class="num">17</span> Ransom Note
+      <a class="lc" href="https://leetcode.com/problems/ransom-note/" target="_blank" rel="noopener">LC 383 ↗</a>
+      <span class="pill diff-easy">Easy</span>
+      <span class="badge b-core">⚪ Core</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Decide whether <code>ransomNote</code> can be built from the letters of <code>magazine</code>, each magazine letter usable at most once.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Order is irrelevant — only counts matter. Tally the magazine's 26 lowercase letters once, then "spend" them down as you read the note; the instant any letter's remaining supply dips below zero, the note out-demands the magazine and you can stop early.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Count every letter of <code>magazine</code> into a 26-slot array.</li>
+      <li>Walk <code>ransomNote</code>, doing <code>--freq[c-'a']</code> for each char.</li>
+      <li>If any decrement drops below 0, return <code>false</code> immediately.</li>
+      <li>Survive the whole note ⇒ return <code>true</code>.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(m+n) — one pass to count the magazine, one to spend on the note</span> <span class="chip space">💾 Space O(1) — fixed 26-slot frequency array</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The supply is finite — two <code>'a'</code>s in the note need two in the magazine, so you must decrement, not just test membership. An empty note is trivially buildable (needs nothing). The 26-slot trick assumes lowercase only; full Unicode would need a <code>HashMap</code>.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "This is just a multiset containment check: the magazine must supply at least as many of each letter as the note demands. I count the magazine once, then debit each note letter from its bucket — the first time a bucket goes negative I know it's impossible. Linear time, constant space."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/strings/RansomNote.java" target="_blank" rel="noopener">📄 RansomNote.java</a>
+  </article>
+
+  <article class="problem" data-name="longest palindrome" data-lc="409">
+    <h4 class="problem-h"><span class="num">18</span> Longest Palindrome
+      <a class="lc" href="https://leetcode.com/problems/longest-palindrome/" target="_blank" rel="noopener">LC 409 ↗</a>
+      <span class="pill diff-easy">Easy</span>
+      <span class="badge b-core">⚪ Core</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Given a string, return the <em>length</em> of the longest palindrome that can be built using its letters (case-sensitive).</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> This BUILDS a length from character counts — it does not search for a substring like Longest Palindromic Substring (LC 5). A palindrome mirrors around its center, so each letter must contribute in even pairs: claim <code>(count/2)*2</code> of every letter for the two halves, then if <em>any</em> letter had a leftover odd one, a single odd char may sit in the very middle for a <code>+1</code>.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Count every character into a 128-slot ASCII table (case-sensitive: <code>'A'</code> ≠ <code>'a'</code>).</li>
+      <li>For each count, add <code>(c/2)*2</code> to the running length (all complete pairs).</li>
+      <li>If any count is odd, set a <code>hasOdd</code> flag.</li>
+      <li>Return <code>length + 1</code> if <code>hasOdd</code>, else <code>length</code>.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n) — one pass to count, fixed-size sweep to total</span> <span class="chip space">💾 Space O(1) — 128-slot ASCII frequency table</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Only <em>one</em> odd-count letter can occupy the center — adding <code>+1</code> per odd letter is the classic bug; it's a single <code>+1</code> total. Case sensitivity matters: <code>"Aa"</code> yields 1, not 2 (no pair). Don't confuse with LC 5 — here you never build or check an actual palindrome string, just total a length.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "A palindrome is symmetric, so every letter except the center must appear an even number of times. I count letters, take all the pairs, and if at least one letter has a spare odd copy I add one for the middle slot. That's O(n) counting — and it's a length-building problem, distinct from finding a palindromic substring."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/strings/LongestPalindrome.java" target="_blank" rel="noopener">📄 LongestPalindrome.java</a>
+  </article>
+
+  <article class="problem" data-name="long pressed name" data-lc="925">
+    <h4 class="problem-h"><span class="num">19</span> Long Pressed Name
+      <a class="lc" href="https://leetcode.com/problems/long-pressed-name/" target="_blank" rel="noopener">LC 925 ↗</a>
+      <span class="pill diff-easy">Easy</span>
+      <span class="badge b-tagged">🔹 Google-tagged</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Decide whether <code>typed</code> could be <code>name</code> with some keys long-pressed — i.e. some characters accidentally repeated.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> A long press only ever DUPLICATES a character that was genuinely typed, so every "extra" char in <code>typed</code> must equal the char immediately before it. Walk both strings: on a match consume both; on a mismatch the only legal explanation is that <code>typed[j]</code> repeats the previous typed char (a held key) — skip <code>j</code> alone — otherwise it's a real typo.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Two pointers: <code>i</code> over <code>name</code>, <code>j</code> over <code>typed</code>.</li>
+      <li>If <code>name[i] == typed[j]</code>, advance both (a real keystroke matched).</li>
+      <li>Else if <code>j &gt; 0</code> and <code>typed[j] == typed[j-1]</code>, advance <code>j</code> only (a long-press repeat).</li>
+      <li>Else return <code>false</code>. At the end, accept iff all of <code>name</code> was consumed (<code>i == name.length()</code>).</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(|typed|) — j advances every step and never rewinds</span> <span class="chip space">💾 Space O(1) — two indices only</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The final check is <code>i == name.length()</code>, not <code>j == typed.length()</code> — trailing long-press repeats in <code>typed</code> are fine, but every letter of <code>name</code> must be covered (e.g. <code>"saeed"</code>/<code>"ssaaedd"</code> fails because the second <code>'e'</code> is never matched). The <code>j &gt; 0</code> guard avoids reading <code>typed[-1]</code>. A repeat is only legal if it matches the <em>previous</em> char, not any earlier one.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "I sync two pointers. When the characters agree I consume from both names. When they differ, the only way <code>typed</code> can be legitimate is if this char is a repeat of the one just before it — a stuck key — so I skip it in <code>typed</code> alone; anything else is a typo. Finally I confirm I actually consumed all of <code>name</code>. Linear, constant space."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/strings/LongPressedName.java" target="_blank" rel="noopener">📄 LongPressedName.java</a>
+  </article>
+
+  <article class="problem" data-name="string to integer (atoi)" data-lc="8">
+    <h4 class="problem-h"><span class="num">20</span> String to Integer (atoi)
+      <a class="lc" href="https://leetcode.com/problems/string-to-integer-atoi/" target="_blank" rel="noopener">LC 8 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-fav">⭐ Google fav</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Parse a leading optional-signed integer from a string (skipping leading spaces, stopping at the first non-digit), clamped to the signed 32-bit range.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> The parse itself is trivial — skip spaces, read one optional sign, fold digits as <code>result*10 + d</code>. The real problem is never letting that fold overflow a 32-bit int. Before each multiply-add, test whether <code>result</code> has already reached <code>Integer.MAX_VALUE/10</code>: if strictly larger, or equal with the incoming digit past the boundary (<code>7</code> positive, <code>8</code> negative), the next step WOULD overflow — so clamp immediately and stay purely in <code>int</code>.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Skip leading spaces; read at most one <code>'+'</code>/<code>'-'</code> sign.</li>
+      <li>While the next char is a digit, compute <code>digit</code>.</li>
+      <li>Pre-emptively test overflow: <code>result &gt; MAX/10</code>, or <code>result == MAX/10 &amp;&amp; digit &gt; (sign==1 ? 7 : 8)</code> → return the clamped limit.</li>
+      <li>Else <code>result = result*10 + digit</code>; finally return <code>sign * result</code>.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n) — single left-to-right scan, stopping at the first non-digit</span> <span class="chip space">💾 Space O(1) — a sign flag and one int accumulator</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Check overflow <em>before</em> the multiply-add, not after — relying on a <code>long</code> or post-hoc <code>parseInt</code> trick defeats the point of the strict-32-bit framing. The boundary digits <code>7</code> and <code>8</code> come from the last digit of <code>2147483647</code> / <code>2147483648</code>. Only the <em>first</em> sign counts; whitespace is leading-only — a space after digits stops the scan. <code>"words and 987"</code> returns 0 because the first non-space is non-digit.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Stripping spaces, the sign, and folding digits is the easy part; the whole problem is overflow. I check the bound <em>before</em> each multiply — if <code>result</code> is already at <code>MAX/10</code> and the next digit pushes past the limit's last digit, I clamp to MIN or MAX right then. That keeps me in pure 32-bit int with no long-casting. Linear time, constant space."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/strings/StringToInteger.java" target="_blank" rel="noopener">📄 StringToInteger.java</a>
+  </article>
+
+  <article class="problem" data-name="expressive words" data-lc="809">
+    <h4 class="problem-h"><span class="num">21</span> Expressive Words
+      <a class="lc" href="https://leetcode.com/problems/expressive-words/" target="_blank" rel="noopener">LC 809 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-tagged">🔹 Google-tagged</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Given a target <code>s</code> and a list of words, count how many words become <code>s</code> by stretching some groups of equal letters to length ≥ 3.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Stretching only ever lengthens a run of equal letters, and only to size ≥ 3. So compare <code>s</code> and each word run-by-run: for matching letters, a word group of length <code>w</code> can produce an <code>s</code> group of length <code>sLen</code> ONLY when <code>w == sLen</code> (untouched) or <code>sLen ≥ 3 &amp;&amp; sLen ≥ w</code> (extended past the size-3 threshold). A group with <code>sLen &lt; 3</code> can't have been stretched, so it must match <code>w</code> exactly.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>For each word, run two pointers over <code>s</code> and the word in lockstep.</li>
+      <li>At each position the current letters must agree, else reject.</li>
+      <li>Measure both run lengths <code>sLen</code> and <code>wLen</code> for that letter; accept the group if <code>sLen == wLen</code>, or <code>sLen ≥ 3 &amp;&amp; sLen ≥ wLen</code>; else reject.</li>
+      <li>Both strings must end together — leftover groups on either side mean a mismatch.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(|s|·|words|) — each word is scanned once alongside s</span> <span class="chip space">💾 Space O(1) — only run-length pointers, no extra structures</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> You can't <em>shrink</em>: a target run shorter than the word's run is always a reject (<code>"aaa"</code> from <code>"aaaa"</code> fails). A target run that stays under 3 must equal the word's run exactly — equal letters with mismatched short runs (single <code>l</code> vs <code>ll</code>) fail. Forgetting the "both fully consumed" end check accepts strings that differ in a trailing group.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "I walk <code>s</code> and the word group by group. The letters of each group must match, and then I compare run lengths: either they're already equal, or the target run was stretched to at least 3 and is no shorter than the word's. A target run below 3 has to match exactly, and I can never shrink. Both must finish together. It's O(s) per word."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/strings/ExpressiveWords.java" target="_blank" rel="noopener">📄 ExpressiveWords.java</a>
+  </article>
+
+  <article class="problem" data-name="minimum window subsequence" data-lc="727">
+    <h4 class="problem-h"><span class="num">22</span> Minimum Window Subsequence
+      <a class="lc" href="https://leetcode.com/problems/minimum-window-subsequence/" target="_blank" rel="noopener">LC 727 ↗</a>
+      <span class="pill diff-hard">Hard</span>
+      <span class="badge b-reported">📌 Reported L6</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Find the shortest substring of <code>s</code> that contains <code>t</code> as a SUBSEQUENCE (order-preserving, gaps allowed); ties go to the earliest start.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> <code>t</code> must appear as a SUBSEQUENCE — order-preserving and non-contiguous — which is fundamentally different from the substring/anagram window of Minimum Window Substring (LC 76). The trick is two-phase per candidate: scan FORWARD through <code>s</code> matching <code>t</code>'s chars in order; the moment <code>t</code> finishes you have a window ending at <code>i</code> but with a loose front, so immediately walk BACKWARD re-matching <code>t</code> in reverse to snap the start to the latest possible position — the tightest window ending at <code>i</code>.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Forward scan: advance <code>i</code> over <code>s</code>, advancing <code>j</code> over <code>t</code> on matches; when <code>j == m</code>, the window ends at <code>i</code>.</li>
+      <li>Shrink-back: from that <code>end</code>, walk <code>i</code> leftward re-matching <code>t</code> from its last char to its first; where <code>j</code> falls below 0, <code>start</code> is the rightmost valid start.</li>
+      <li>Record <code>[start, end]</code> if strictly shorter (earliest start wins ties).</li>
+      <li>Resume the forward scan from <code>start + 1</code> to find the next window; stop when <code>s</code> is exhausted before <code>t</code> completes.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(|s|·|t|) — each successful match triggers an O(|t|) back-walk</span> <span class="chip space">💾 Space O(1) — a handful of indices only</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Contrast sharply with LC 76: this is a subsequence (gaps OK, order fixed), so a frequency-count sliding window does NOT apply. Restart the forward scan from <code>start + 1</code> (not <code>end + 1</code>), or you'll skip overlapping windows that begin inside the current one. Use strict <code>&lt;</code> on length so ties keep the <em>earliest</em> start. No window found ⇒ return <code>""</code>.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Because <code>t</code> is a subsequence, not a contiguous substring, the sliding-window-with-counts approach for LC 76 doesn't work. I scan forward until I've matched all of <code>t</code>, which fixes the window's end; then I walk backward re-matching <code>t</code> in reverse to pull the start as far right as possible — the tightest window for that end. I keep the shortest and restart just past each start. That's O(|s|·|t|), constant space."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/strings/MinimumWindowSubsequence.java" target="_blank" rel="noopener">📄 MinimumWindowSubsequence.java</a>
+  </article>
+
   <div class="panel practice">
     <h3>🔁 Practice plan</h3>
     <p>Work top-to-bottom: the easy four (242, 20, 14, 13) cement the count-vector and stack idioms in minutes — re-derive each from a blank file until they're muscle memory. Then drill the core mediums (49, 271, 5, 394) since they recombine those idioms with hashing, framing, and center-expansion. Save the 🟦 signature quartet (833, 792, 418, 158) and the two hard favorites (767, 68) for focused sessions — each has one non-obvious trick (cursor-against-original, invert-the-loop, per-start memo, carry buffer, frequency heap, space distribution) that interviewers probe. Rehearse these Google-favorite follow-ups out loud: in <strong>Decode String</strong>, handle malformed input; in <strong>Text Justification</strong>, justify <em>right</em> instead; in <strong>Number of Matching Subsequences</strong>, return <em>which</em> words matched, not just the count.</p>
@@ -1972,7 +2173,7 @@ long windowHash(int from, int to) {                  // hash of s[from..to)
 <section class="chapter" id="stack" data-title="Stack &amp; Parsing">
   <h2 class="chapter-title"><span class="emoji">🥞</span> Stack &amp; Parsing</h2>
   <p class="lede">Stacks turn "I need to remember earlier context until a later event resolves it" into linear-time passes — that's the engine behind monotonic-stack range queries and recursive-descent expression evaluation. For Google L6 these problems are high-ROI because they reward clean state management and precise reasoning about operator precedence, parenthesis scoping, and amortized O(n) bounds under pressure.</p>
-  <p class="source">Source: <em>Prep Tracker</em> &amp; <em>Deep Research Adds</em> tabs · <span class="count">5 problems</span></p>
+  <p class="source">Source: <em>Prep Tracker</em> &amp; <em>Deep Research Adds</em> tabs · <span class="count">7 problems</span></p>
 
   <div class="panel">
     <h3>🎯 Recognition signals</h3>
@@ -2039,6 +2240,16 @@ for (int v : stack) total += v;     // all */ resolved → just sum additive ter
             <td><span class="pill diff-hard">Hard</span></td>
             <td><span class="badge b-sig">🟦 Google signature</span></td>
             <td>Recursive descent + precedence stack</td><td>O(n)</td><td>O(n)</td></tr>
+        <tr><td>6</td><td>Implement Queue using Stacks</td>
+            <td><a class="lc" href="https://leetcode.com/problems/implement-queue-using-stacks/" target="_blank" rel="noopener">LC 232 ↗</a></td>
+            <td><span class="pill diff-easy">Easy</span></td>
+            <td><span class="badge b-core">⚪ Core</span></td>
+            <td>Two stacks, amortized O(1)</td><td>O(1)*</td><td>O(n)</td></tr>
+        <tr><td>7</td><td>Evaluate Reverse Polish Notation</td>
+            <td><a class="lc" href="https://leetcode.com/problems/evaluate-reverse-polish-notation/" target="_blank" rel="noopener">LC 150 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
+            <td>Operand stack</td><td>O(n)</td><td>O(n)</td></tr>
       </tbody>
     </table>
   </div>
@@ -2143,6 +2354,44 @@ for (int v : stack) total += v;     // all */ resolved → just sum additive ter
     <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The shared cursor (<code>pos</code> as a field) is essential — a local index per call would re-scan the inner expression. The "apply pending op" trigger must also fire at end-of-string (<code>atEnd</code>), or the final number is dropped. Operate on the operator <em>before</em> the current number, not after. Integer division truncates toward zero in Java for non-negative operands, matching the spec. Skip spaces without resetting the pending op.</div>
     <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "I combine two ideas. For precedence, I push additive terms onto a stack but resolve times and divide immediately against the top, so the final answer is just the sum of the stack. For parentheses, I recurse using a shared cursor — an open paren kicks off a sub-evaluation that returns the value at the matching close paren, which I then treat as a plain number. The key is that the operator I act on is the one in front of the current operand, and I must also flush at the very end of the string. Every character is read exactly once, so O(n)."</div>
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/stack/BasicCalculatorIII.java" target="_blank" rel="noopener">📄 BasicCalculatorIII.java</a>
+  </article>
+
+  <article class="problem" data-name="implement queue using stacks" data-lc="232">
+    <h4 class="problem-h"><span class="num">6</span> Implement Queue using Stacks
+      <a class="lc" href="https://leetcode.com/problems/implement-queue-using-stacks/" target="_blank" rel="noopener">LC 232 ↗</a>
+      <span class="pill diff-easy">Easy</span>
+      <span class="badge b-core">⚪ Core</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Build a FIFO queue (<code>push</code>/<code>pop</code>/<code>peek</code>/<code>empty</code>) using only two LIFO stacks.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Use an <em>in</em>-stack for pushes and an <em>out</em>-stack for pops. Reversing one LIFO into another yields FIFO order, but you only need to pour <code>in</code> → <code>out</code> when <code>out</code> is empty. Because each element is moved across at most once over its lifetime, that transfer cost is charged to a single element → amortized O(1) per operation even though one individual <code>pop</code> can be O(n).</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li><code>push(x)</code>: always push onto <code>in</code>.</li>
+      <li><code>pop()</code>/<code>peek()</code>: if <code>out</code> is empty, drain all of <code>in</code> into <code>out</code> (reversing order), then read from <code>out</code>.</li>
+      <li><code>empty()</code>: true only when <em>both</em> stacks are empty.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(1) amortized — each element moved in→out at most once</span> <span class="chip space">💾 Space O(n) — the two stacks hold all queued elements</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Refill <code>out</code> <em>only</em> when it is empty — pouring eagerly on every op breaks FIFO order and the amortized bound. <code>empty()</code> must check both stacks, since pending elements may sit in either. A single <code>pop</code> right after many pushes is O(n), but the amortized cost stays O(1).</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "A stack is LIFO, so I reverse it once to get FIFO: pushes go to an in-stack, and pops read from an out-stack. I only refill the out-stack from the in-stack when it's empty, so each element is transferred at most once. That makes every operation amortized O(1), even though a single pop after a burst of pushes is O(n)."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/stack/ImplementQueueUsingStacks.java" target="_blank" rel="noopener">📄 ImplementQueueUsingStacks.java</a>
+  </article>
+
+  <article class="problem" data-name="evaluate reverse polish notation" data-lc="150">
+    <h4 class="problem-h"><span class="num">7</span> Evaluate Reverse Polish Notation
+      <a class="lc" href="https://leetcode.com/problems/evaluate-reverse-polish-notation/" target="_blank" rel="noopener">LC 150 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-tagged">🔹 Google-tagged</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Evaluate an arithmetic expression in postfix (Reverse Polish) notation with operators <code>+ - * /</code>, where division truncates toward zero.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Postfix needs no precedence rules or parentheses: by the time an operator is read, its two operands are guaranteed to be the most recently produced values, sitting on top of the stack. The only subtlety is operand <em>order</em> — the second value popped is the left-hand operand, which matters for non-commutative <code>−</code> and <code>÷</code>.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Scan tokens left to right. A number token is pushed onto an operand stack.</li>
+      <li>On an operator, pop <code>right</code> first then <code>left</code> (the deeper value), apply <code>left op right</code>, and push the result.</li>
+      <li>After consuming all tokens, the single remaining stack value is the answer.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n) — each token is pushed/popped a constant number of times</span> <span class="chip space">💾 Space O(n) — the stack holds up to O(n) operands for an all-numbers prefix</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Pop order is the classic trap: the <em>first</em> pop is the right operand, the <em>second</em> is the left — reversing them flips <code>a − b</code> and <code>a ÷ b</code>. Integer division truncates toward zero in Java (<code>-7 / 2 == -3</code>, not <code>-4</code>), which matches the spec. Negative-number tokens like <code>"-11"</code> are operands, not the <code>−</code> operator — parse the whole token.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Postfix is exactly what a stack wants: I push operands, and when an operator appears its two operands are already on top, so I pop them, apply, and push the result. The one gotcha is order — the first value I pop is the right operand and the second is the left, which matters for subtraction and division. It's a single linear pass, O(n) time and O(n) space."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/stack/EvaluateReversePolishNotation.java" target="_blank" rel="noopener">📄 EvaluateReversePolishNotation.java</a>
   </article>
 
   <div class="panel practice">
@@ -2381,7 +2630,7 @@ int[] heapSort(int[] a) {
 <section class="chapter" id="binarysearch" data-title="Binary Search">
   <h2 class="chapter-title"><span class="emoji">🔎</span> Binary Search</h2>
   <p class="lede">Binary search is two patterns wearing one coat. The classic form halves a sorted (or locally-ordered) array to find an index in O(log n); the deeper form — <em>binary search on the answer</em> — searches a numeric answer range guarded by a monotone yes/no predicate. The second is the Google L6 differentiator: once you see "minimize the maximum" or "smallest feasible X", you can turn an O(n!) optimization into O(n log range), and the interview is half won.</p>
-  <p class="source">Source: <em>Prep Tracker &amp; curated Staff gaps</em> · <span class="count">14 problems</span></p>
+  <p class="source">Source: <em>Prep Tracker &amp; curated Staff gaps</em> · <span class="count">16 problems</span></p>
 
   <div class="panel">
     <h3>🎯 Recognition signals</h3>
@@ -2505,6 +2754,16 @@ int searchAnswer(int[] data) {
             <td><span class="pill diff-hard">Hard</span></td>
             <td><span class="badge b-core">⚪ Core</span></td>
             <td>Partition the smaller array</td><td>O(log min(m,n))</td><td>O(1)</td></tr>
+        <tr><td>15</td><td>Binary Search</td>
+            <td><a class="lc" href="https://leetcode.com/problems/binary-search/" target="_blank" rel="noopener">LC 704 ↗</a></td>
+            <td><span class="pill diff-easy">Easy</span></td>
+            <td><span class="badge b-core">⚪ Core</span></td>
+            <td>Canonical lo/hi/mid template</td><td>O(log n)</td><td>O(1)</td></tr>
+        <tr><td>16</td><td>First Bad Version</td>
+            <td><a class="lc" href="https://leetcode.com/problems/first-bad-version/" target="_blank" rel="noopener">LC 278 ↗</a></td>
+            <td><span class="pill diff-easy">Easy</span></td>
+            <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
+            <td>Boundary on a predicate</td><td>O(log n)</td><td>O(1)</td></tr>
       </tbody>
     </table>
   </div>
@@ -2777,6 +3036,44 @@ int searchAnswer(int[] data) {
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/binarysearch/MedianOfTwoSortedArrays.java" target="_blank" rel="noopener">📄 MedianOfTwoSortedArrays.java</a>
   </article>
 
+  <article class="problem" data-name="binary search" data-lc="704">
+    <h4 class="problem-h"><span class="num">15</span> Binary Search
+      <a class="lc" href="https://leetcode.com/problems/binary-search/" target="_blank" rel="noopener">LC 704 ↗</a>
+      <span class="pill diff-easy">Easy</span>
+      <span class="badge b-core">⚪ Core</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Return the index of <code>target</code> in a sorted array of distinct integers, or −1 if absent.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> The reference template the whole chapter builds on. Hold the inclusive invariant "if <code>target</code> exists it is always inside <code>[lo, hi]</code>", and each step compares <code>nums[mid]</code> to discard the half that provably cannot contain it. The midpoint <code>lo + (hi - lo) / 2</code> avoids the <code>lo + hi</code> overflow.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Closed interval <code>lo = 0, hi = n - 1</code>; loop while <code>lo &lt;= hi</code> (empty exactly when <code>lo &gt; hi</code>).</li>
+      <li>Compute <code>mid = lo + (hi - lo) / 2</code>; return <code>mid</code> on equality.</li>
+      <li>If <code>nums[mid] &lt; target</code> the target is strictly right (<code>lo = mid + 1</code>); else strictly left (<code>hi = mid - 1</code>). Return −1 if the window collapses.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(log n) — the window halves every iteration</span> <span class="chip space">💾 Space O(1) — only two indices</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Pair the closed interval <code>lo &lt;= hi</code> with <code>mid ± 1</code> updates — mixing it with <code>hi = mid</code> loops forever. Always write the overflow-safe midpoint, not <code>(lo + hi) / 2</code>, since both indices can be large. The distinct-value assumption means any hit is unambiguous; duplicates push you to the lower-bound template instead.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "This is the canonical sorted-array search and the template the rest of the chapter specializes. I keep the answer inside a closed window and halve it each step by comparing the middle to the target. Two things I always get right: the overflow-safe midpoint, and pairing <code>lo &lt;= hi</code> with <code>mid ± 1</code> moves. O(log n) time, O(1) space."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/binarysearch/BinarySearch.java" target="_blank" rel="noopener">📄 BinarySearch.java</a>
+  </article>
+
+  <article class="problem" data-name="first bad version" data-lc="278">
+    <h4 class="problem-h"><span class="num">16</span> First Bad Version
+      <a class="lc" href="https://leetcode.com/problems/first-bad-version/" target="_blank" rel="noopener">LC 278 ↗</a>
+      <span class="pill diff-easy">Easy</span>
+      <span class="badge b-tagged">🔹 Google-tagged</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Versions read good…good,bad…bad; given an <code>isBadVersion(v)</code> API, find the first bad version with the fewest calls.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Binary-search the <em>boundary</em> of a monotone false→true predicate, not a stored value. The predicate is a step function, so search for where it flips: when <code>mid</code> is bad the first bad is at <code>mid</code> or left (<code>hi = mid</code>), when good it is strictly right (<code>lo = mid + 1</code>). The window shrinks to the single boundary index.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Converge-to-one template: <code>lo = 1, hi = n</code>, loop while <code>lo &lt; hi</code>.</li>
+      <li><code>mid = lo + (hi - lo) / 2</code>. If <code>isBadVersion(mid)</code>, keep <code>mid</code> as a candidate: <code>hi = mid</code>.</li>
+      <li>Else the boundary is to its right: <code>lo = mid + 1</code>. Return <code>lo</code> when the range collapses.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(log n) — the candidate range halves each step</span> <span class="chip space">💾 Space O(1) — two indices only</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The overflow-safe midpoint is not optional here: <code>n</code> can be near <code>Integer.MAX_VALUE</code>, so <code>(lo + hi) / 2</code> overflows and breaks. Use <code>hi = mid</code> (not <code>mid - 1</code>) because <code>mid</code> may itself be the first bad version; pairing that with <code>lo &lt; hi</code> avoids an infinite loop. This finds the FIRST true — a lower-bound on a predicate, not an equality search.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Instead of searching for a value, I search the boundary of a monotone predicate: everything from the first bad version onward is bad. When the midpoint is bad I keep it and look left; when it's good I move right. The window converges to that flip point. The one real trap is overflow — n is near 2³¹, so I compute mid as lo + (hi − lo)/2."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/binarysearch/FirstBadVersion.java" target="_blank" rel="noopener">📄 FirstBadVersion.java</a>
+  </article>
+
   <div class="panel practice">
     <h3>🔁 Practice plan</h3>
     <p>Drill in two tracks. <strong>Track A — index search:</strong> from a blank file re-derive the half-open <code>lowerBound</code> until it's muscle memory, then layer rotation onto it (33 → 81 → 153) and the matrix variants (74 → 240). <strong>Track B — search on the answer:</strong> solve Koko (875) first, then prove to yourself that Capacity (1011) and Split Array (410) are the <em>same code</em> with a swapped <code>feasible</code> — being able to say "this is the Koko family" out loud is the L6 signal. Save Median (4) for last; re-derive the partition invariant on paper before touching the keyboard. Google-favourite follow-ups to rehearse: <em>Search a 2D Matrix II</em> (staircase vs. per-row search), <em>Find the Duplicate Number</em> (count-on-value vs. Floyd's cycle), and <em>Find K Closest Elements</em> (edge search vs. two-pointer shrink).</p>
@@ -2795,7 +3092,7 @@ int searchAnswer(int[] data) {
 <section class="chapter" id="linkedlist" data-title="Linked Lists">
   <h2 class="chapter-title"><span class="emoji">🔗</span> Linked Lists</h2>
   <p class="lede">Linked-list problems are pure pointer surgery: you re-wire <code>next</code> (and sometimes <code>prev</code>/<code>random</code>) links in place instead of copying data. A small toolkit — dummy heads, fast/slow two-pointers, in-place reversal, and the heap/hash-map pairings — solves nearly all of them, which makes this family extremely high-ROI: Google L6 interviewers lean on it to test whether you can mutate a structure cleanly under pressure without losing a node or leaking a cycle.</p>
-  <p class="source">Source: <em>Prep Tracker</em> &amp; <em>Deep Research Adds</em> tabs · <span class="count">10 problems</span></p>
+  <p class="source">Source: <em>Prep Tracker</em> &amp; <em>Deep Research Adds</em> tabs · <span class="count">11 problems</span></p>
 
   <div class="panel">
     <h3>🎯 Recognition signals</h3>
@@ -2893,6 +3190,11 @@ return prev; // new head</code></pre>
             <td><span class="pill diff-medium">Medium</span></td>
             <td><span class="badge b-fav">⭐ Google fav</span></td>
             <td>Hash map + doubly linked list</td><td>O(1)</td><td>O(capacity)</td></tr>
+        <tr><td>11</td><td>Middle of the Linked List</td>
+            <td><a class="lc" href="https://leetcode.com/problems/middle-of-the-linked-list/" target="_blank" rel="noopener">LC 876 ↗</a></td>
+            <td><span class="pill diff-easy">Easy</span></td>
+            <td><span class="badge b-core">⚪ Core</span></td>
+            <td>Fast/slow pointers</td><td>O(n)</td><td>O(1)</td></tr>
       </tbody>
     </table>
   </div>
@@ -3092,6 +3394,25 @@ return prev; // new head</code></pre>
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/linkedlist/LRUCache.java" target="_blank" rel="noopener">📄 LRUCache.java</a>
   </article>
 
+  <article class="problem" data-name="middle of the linked list" data-lc="876">
+    <h4 class="problem-h"><span class="num">11</span> Middle of the Linked List
+      <a class="lc" href="https://leetcode.com/problems/middle-of-the-linked-list/" target="_blank" rel="noopener">LC 876 ↗</a>
+      <span class="pill diff-easy">Easy</span>
+      <span class="badge b-core">⚪ Core</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Return the middle node of a singly linked list in one pass; for an even length, return the <em>second</em> of the two middles.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> A two-speed walk: <code>slow</code> advances one node while <code>fast</code> advances two, so <code>slow</code> has always covered exactly half of what <code>fast</code> has. When <code>fast</code> runs off the end, <code>slow</code> sits at the middle. This is the reusable tortoise-and-hare primitive behind cycle detection and Reorder/Palindrome.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Start <code>slow = fast = head</code>.</li>
+      <li>While <code>fast != null &amp;&amp; fast.next != null</code>, advance <code>slow</code> by 1 and <code>fast</code> by 2.</li>
+      <li>Return <code>slow</code> — it lands on the (second) middle when the loop exits.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n) — fast traverses the whole list once</span> <span class="chip space">💾 Space O(1) — two pointers, no extra structures</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The <code>fast != null &amp;&amp; fast.next != null</code> condition is precisely what yields the <em>second</em> middle on even lengths — fast lands on null after the last step, leaving slow one past center. To get the <em>first</em> middle instead, loop on <code>fast.next != null &amp;&amp; fast.next.next != null</code> (the variant Reorder/Palindrome need to keep the first half no longer than the second). Single-node lists return the node itself.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "I run two pointers, one at double speed. By the time the fast one falls off the end, the slow one has covered exactly half the list, so it's sitting on the middle — one pass, constant space. The loop condition I pick decides whether I get the first or second middle on even lengths, which matters when this is the setup step for reorder or palindrome checks."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/linkedlist/MiddleOfTheLinkedList.java" target="_blank" rel="noopener">📄 MiddleOfTheLinkedList.java</a>
+  </article>
+
   <div class="panel practice">
     <h3>🔁 Practice plan</h3>
     <p>Drill in the table's order — the three Easies (206, 21, 141) install the dummy-head, two-finger-merge, and fast/slow idioms you'll reuse everywhere. Then 234/19/143 layer them together; 138, 23, and 146 are the design-flavored payoffs. From a blank file, re-derive the iterative reversal and the fast/slow middle without looking — they're the backbone of half this chapter. Rehearse these Google-favorite follow-ups out loud: LC 142 (cycle <em>entry</em> node), LC 445 (add two numbers, forward order), and LRU → LFU (LC 460).</p>
@@ -3109,7 +3430,7 @@ return prev; // new head</code></pre>
 <section class="chapter" id="trees" data-title="Trees">
   <h2 class="chapter-title"><span class="emoji">🌳</span> Trees</h2>
   <p class="lede">Binary-tree problems are about choosing the right traversal and then carrying exactly the right state across it: a BFS queue when you reason by level, a post-order DFS when a node's answer depends on its children, and bounds threaded top-down when validity is a global property. This family is high-ROI for Google L6 because it rewards a clean recursive contract ("what does this call return, and what does it leave behind?") over memorized code — the exact judgment interviewers probe.</p>
-  <p class="source">Source: <em>Prep Tracker</em> &amp; <em>Deep Research Adds</em> tabs · <span class="count">9 problems</span></p>
+  <p class="source">Source: <em>Prep Tracker</em> &amp; <em>Deep Research Adds</em> tabs · <span class="count">18 problems</span></p>
 
   <div class="panel">
     <h3>🎯 Recognition signals</h3>
@@ -3199,6 +3520,51 @@ int dfs(TreeNode node) {
             <td><span class="pill diff-hard">Hard</span></td>
             <td><span class="badge b-fav">⭐ Google fav</span></td>
             <td>Pre-order with null markers</td><td>O(n)</td><td>O(n)</td></tr>
+        <tr><td>10</td><td>Maximum Depth of Binary Tree</td>
+            <td><a class="lc" href="https://leetcode.com/problems/maximum-depth-of-binary-tree/" target="_blank" rel="noopener">LC 104 ↗</a></td>
+            <td><span class="pill diff-easy">Easy</span></td>
+            <td><span class="badge b-core">⚪ Core</span></td>
+            <td>Post-order height</td><td>O(n)</td><td>O(h)</td></tr>
+        <tr><td>11</td><td>Invert Binary Tree</td>
+            <td><a class="lc" href="https://leetcode.com/problems/invert-binary-tree/" target="_blank" rel="noopener">LC 226 ↗</a></td>
+            <td><span class="pill diff-easy">Easy</span></td>
+            <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
+            <td>Swap subtrees (DFS)</td><td>O(n)</td><td>O(h)</td></tr>
+        <tr><td>12</td><td>Balanced Binary Tree</td>
+            <td><a class="lc" href="https://leetcode.com/problems/balanced-binary-tree/" target="_blank" rel="noopener">LC 110 ↗</a></td>
+            <td><span class="pill diff-easy">Easy</span></td>
+            <td><span class="badge b-core">⚪ Core</span></td>
+            <td>Bottom-up height, −1 sentinel</td><td>O(n)</td><td>O(h)</td></tr>
+        <tr><td>13</td><td>Diameter of Binary Tree</td>
+            <td><a class="lc" href="https://leetcode.com/problems/diameter-of-binary-tree/" target="_blank" rel="noopener">LC 543 ↗</a></td>
+            <td><span class="pill diff-easy">Easy</span></td>
+            <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
+            <td>Height DFS, global max</td><td>O(n)</td><td>O(h)</td></tr>
+        <tr><td>14</td><td>Range Sum of BST</td>
+            <td><a class="lc" href="https://leetcode.com/problems/range-sum-of-bst/" target="_blank" rel="noopener">LC 938 ↗</a></td>
+            <td><span class="pill diff-easy">Easy</span></td>
+            <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
+            <td>BST-pruned DFS</td><td>O(n)</td><td>O(h)</td></tr>
+        <tr><td>15</td><td>Longest Univalue Path</td>
+            <td><a class="lc" href="https://leetcode.com/problems/longest-univalue-path/" target="_blank" rel="noopener">LC 687 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
+            <td>DFS same-value arrow</td><td>O(n)</td><td>O(h)</td></tr>
+        <tr><td>16</td><td>Kth Smallest Element in a BST</td>
+            <td><a class="lc" href="https://leetcode.com/problems/kth-smallest-element-in-a-bst/" target="_blank" rel="noopener">LC 230 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-fav">⭐ Google fav</span></td>
+            <td>In-order, stop at k</td><td>O(h + k)</td><td>O(h)</td></tr>
+        <tr><td>17</td><td>Lowest Common Ancestor of a BST</td>
+            <td><a class="lc" href="https://leetcode.com/problems/lowest-common-ancestor-of-a-binary-search-tree/" target="_blank" rel="noopener">LC 235 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
+            <td>Walk down by value</td><td>O(h)</td><td>O(1)</td></tr>
+        <tr><td>18</td><td>Construct Binary Tree from Preorder and Inorder</td>
+            <td><a class="lc" href="https://leetcode.com/problems/construct-binary-tree-from-preorder-and-inorder-traversal/" target="_blank" rel="noopener">LC 105 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-fav">⭐ Google fav</span></td>
+            <td>Preorder root + inorder index map</td><td>O(n)</td><td>O(n)</td></tr>
       </tbody>
     </table>
   </div>
@@ -3383,6 +3749,185 @@ int dfs(TreeNode node) {
     <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Without null markers the shape is ambiguous (pre-order alone can't reconstruct a general binary tree). Negative values and multi-digit numbers work because tokens are split on the separator, not by character — don't try to read fixed-width digits. An empty tree must round-trip (serialize to just <code>"#,"</code> and back to null). Level-order (BFS) encoding is an equally accepted alternative.</div>
     <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "I serialize with a pre-order traversal, writing a sentinel for every null so the structure is unambiguous. Because pre-order lists the root first and each subtree forms a contiguous self-delimiting block, deserialize just walks the tokens in the same order: a sentinel means an empty child, otherwise build the node and recursively fill its left then right from the remaining tokens. Both directions are O(n)."</div>
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/trees/SerializeAndDeserializeBinaryTree.java" target="_blank" rel="noopener">📄 SerializeAndDeserializeBinaryTree.java</a>
+  </article>
+
+  <article class="problem" data-name="maximum depth of binary tree" data-lc="104">
+    <h4 class="problem-h"><span class="num">10</span> Maximum Depth of Binary Tree
+      <a class="lc" href="https://leetcode.com/problems/maximum-depth-of-binary-tree/" target="_blank" rel="noopener">LC 104 ↗</a>
+      <span class="pill diff-easy">Easy</span>
+      <span class="badge b-core">⚪ Core</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Return the number of nodes along the longest path from the root down to the farthest leaf.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Depth is a pure post-order fold with no cross-subtree interaction: a node's depth is <code>1 + max(depth(left), depth(right))</code>, and an empty subtree contributes 0. That single recurrence fully defines the answer at the root.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>If the node is null, return 0 (an empty subtree has no depth).</li>
+      <li>Recurse into both children to get their depths.</li>
+      <li>Return <code>1 + Math.max(leftDepth, rightDepth)</code> — this node plus the deeper side.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n) — one visit per node</span> <span class="chip space">💾 Space O(h) — recursion stack, h the tree height</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The base case returning 0 (not 1) is what makes a single-node tree come out as depth 1. On a degenerate, fully-skewed tree the recursion stack is O(n); an iterative BFS counting levels is the O(n)-space alternative if stack depth is a concern.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Depth obeys one clean recurrence: a node is one level deeper than its deepest child, and an empty subtree is depth zero. So I post-order recurse, take the max of the two child depths, add one, and return it. No global state is needed because nothing crosses between subtrees. O(n) time, O(h) stack."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/trees/MaximumDepthOfBinaryTree.java" target="_blank" rel="noopener">📄 MaximumDepthOfBinaryTree.java</a>
+  </article>
+
+  <article class="problem" data-name="invert binary tree" data-lc="226">
+    <h4 class="problem-h"><span class="num">11</span> Invert Binary Tree
+      <a class="lc" href="https://leetcode.com/problems/invert-binary-tree/" target="_blank" rel="noopener">LC 226 ↗</a>
+      <span class="pill diff-easy">Easy</span>
+      <span class="badge b-tagged">🔹 Google-tagged</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Mirror the tree in place — swap every node's left and right children — and return the new root.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Inverting is mirroring, and mirroring is structurally recursive: swap a node's two children, then mirror each child. Crucially the swap commutes with the recursion (invert-then-swap equals swap-then-invert), so processing order is irrelevant — the subtree is correctly mirrored once both children are.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>If the node is null, return null.</li>
+      <li>Recursively invert the left and right subtrees, capturing the two results.</li>
+      <li>Assign the inverted right result to <code>root.left</code> and the inverted left result to <code>root.right</code>.</li>
+      <li>Return the (now mirrored) node.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n) — one swap per node</span> <span class="chip space">💾 Space O(h) — recursion stack, h the tree height</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Because the operation commutes with the recursion you can swap before or after recursing — but if you swap first and then reuse the old <code>root.left</code>/<code>root.right</code> references, capture them into temporaries to avoid reading already-overwritten pointers. An iterative BFS/DFS that swaps children as it dequeues is an equally valid O(n) approach.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Mirroring a tree just means swapping every node's two children. That's recursive: I mirror each subtree, then swap the two mirrored results at the current node. Since the swap commutes with the recursion, order doesn't matter — the whole thing is correct once both sides are done. One pass, O(n) time, O(h) stack."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/trees/InvertBinaryTree.java" target="_blank" rel="noopener">📄 InvertBinaryTree.java</a>
+  </article>
+
+  <article class="problem" data-name="balanced binary tree" data-lc="110">
+    <h4 class="problem-h"><span class="num">12</span> Balanced Binary Tree
+      <a class="lc" href="https://leetcode.com/problems/balanced-binary-tree/" target="_blank" rel="noopener">LC 110 ↗</a>
+      <span class="pill diff-easy">Easy</span>
+      <span class="badge b-core">⚪ Core</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Decide whether the tree is height-balanced: at every node the heights of the two subtrees differ by at most 1.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Checking balance and measuring height are the same post-order pass. Fuse them by letting the height function return a <code>-1</code> sentinel meaning "already unbalanced" — that <code>-1</code> then poisons every ancestor and short-circuits the rest of the walk, avoiding the O(n²) of recomputing height at every node.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Define <code>height(node)</code>: a null node returns 0.</li>
+      <li>Recurse left; if it returns <code>-1</code>, propagate <code>-1</code> immediately. Same for right.</li>
+      <li>If <code>abs(leftHeight - rightHeight) &gt; 1</code>, this node fails — return <code>-1</code>.</li>
+      <li>Otherwise return <code>1 + max(leftHeight, rightHeight)</code>; the tree is balanced iff <code>height(root) != -1</code>.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n) — each node's height computed exactly once</span> <span class="chip space">💾 Space O(h) — recursion stack, h the tree height</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The naive solution calls a separate <code>height()</code> at every node while checking balance, which is O(n²) on a skewed tree — the <code>-1</code> sentinel fusing the two passes is the whole point. You must short-circuit on the left subtree's <code>-1</code> <em>before</em> recursing right, or you lose the early exit. Returning <code>-1</code> is safe because a real height is always ≥ 0.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Balance and height come from the same bottom-up pass, so I compute height once and overload its return value: a normal height when the subtree is balanced, or <code>-1</code> the moment any node violates the ≤ 1 rule. That <code>-1</code> propagates straight to the root and short-circuits everything, turning the naive O(n²) into a single O(n) traversal."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/trees/BalancedBinaryTree.java" target="_blank" rel="noopener">📄 BalancedBinaryTree.java</a>
+  </article>
+
+  <article class="problem" data-name="diameter of binary tree" data-lc="543">
+    <h4 class="problem-h"><span class="num">13</span> Diameter of Binary Tree
+      <a class="lc" href="https://leetcode.com/problems/diameter-of-binary-tree/" target="_blank" rel="noopener">LC 543 ↗</a>
+      <span class="pill diff-easy">Easy</span>
+      <span class="badge b-tagged">🔹 Google-tagged</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Return the length (in edges) of the longest path between any two nodes, which need not pass through the root.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> The longest path "turns" at a single highest node, where it spans the full depth on both sides — exactly <code>leftHeight + rightHeight</code> edges. So one post-order pass computes each node's height and, in passing, folds that turning width into a global max; the diameter is the largest such width over all nodes.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Define <code>height(node)</code> returning 0 for null.</li>
+      <li>Recurse to get <code>left</code> and <code>right</code> child heights.</li>
+      <li>Update <code>best = max(best, left + right)</code> — the path that turns at this node, counted in edges.</li>
+      <li>Return <code>1 + max(left, right)</code> upward; the answer is the accumulated <code>best</code>.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n) — one visit per node</span> <span class="chip space">💾 Space O(h) — recursion stack, h the tree height</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The diameter is measured in <em>edges</em>, so <code>left + right</code> is correct and a single-node tree gives 0 — off-by-one bugs creep in if you count nodes instead. Like max-path-sum, the value you <em>return</em> (single-side height) differs from what you <em>record</em> (both sides joined); conflating them is the classic mistake. The longest path often doesn't pass through the root, which is why a global accumulator is needed.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Every candidate longest path bends at one topmost node, and there its length is just the heights of the two subtrees added together. So I run a normal height computation, and at each node I also update a global best with left-height plus right-height. I return only one side up to my parent, but I record both joined here. O(n) time, O(h) stack."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/trees/DiameterOfBinaryTree.java" target="_blank" rel="noopener">📄 DiameterOfBinaryTree.java</a>
+  </article>
+
+  <article class="problem" data-name="range sum of bst" data-lc="938">
+    <h4 class="problem-h"><span class="num">14</span> Range Sum of BST
+      <a class="lc" href="https://leetcode.com/problems/range-sum-of-bst/" target="_blank" rel="noopener">LC 938 ↗</a>
+      <span class="pill diff-easy">Easy</span>
+      <span class="badge b-tagged">🔹 Google-tagged</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Given the root of a BST and an inclusive range <code>[low, high]</code>, return the sum of all node values that fall within it.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> The BST ordering lets you <em>prune</em> whole subtrees instead of visiting them. If a node's value is below <code>low</code>, its entire left subtree is also below <code>low</code> and cannot contribute, so you recurse right only — and symmetrically above <code>high</code>. Only when the node lies inside the range must both children be explored.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Null node contributes 0.</li>
+      <li>If <code>node.val &lt; low</code>, skip the left subtree entirely — recurse right only.</li>
+      <li>If <code>node.val &gt; high</code>, skip the right subtree — recurse left only.</li>
+      <li>Otherwise add <code>node.val</code> and recurse into both children.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n) worst case, but only boundary-path and in-range nodes are touched</span> <span class="chip space">💾 Space O(h) — recursion stack, h the tree height</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The pruning is the entire point — a naive full traversal that filters by range is correct but wastes work the BST structure rules out. The range is inclusive, so the boundary comparisons must be strict (<code>&lt; low</code> / <code>&gt; high</code>) to keep values exactly equal to <code>low</code> or <code>high</code> in the sum. Worst case (whole tree in range) is still O(n), but typical inputs touch far fewer nodes.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "I exploit the BST order to avoid visiting subtrees that can't contribute. If the current value is below the low bound, everything to its left is even smaller, so I only go right; symmetrically for the high bound. When the node is inside the range I count it and explore both sides. That prunes large chunks while staying O(n) in the worst case, O(h) stack."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/trees/RangeSumOfBST.java" target="_blank" rel="noopener">📄 RangeSumOfBST.java</a>
+  </article>
+
+  <article class="problem" data-name="longest univalue path" data-lc="687">
+    <h4 class="problem-h"><span class="num">15</span> Longest Univalue Path
+      <a class="lc" href="https://leetcode.com/problems/longest-univalue-path/" target="_blank" rel="noopener">LC 687 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-tagged">🔹 Google-tagged</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Return the length (in edges) of the longest path where every node on the path has the same value; the path need not pass through the root.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Like the diameter, the longest same-value path turns at one apex — but the twist is what each child returns: the longest same-value "arrow" that can be <em>extended through the parent</em>, which is non-zero only when the child holds the same value as the parent (otherwise the chain breaks and the child contributes 0). At each node you join the two qualifying arrows for the turning length, but pass only one up.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Define <code>arrow(node)</code> returning 0 for null.</li>
+      <li>Recurse to get <code>left</code> and <code>right</code> arrow lengths from the children.</li>
+      <li>Set <code>leftArrow = left + 1</code> only if the left child exists and equals <code>node.val</code> (else 0); same for <code>rightArrow</code>.</li>
+      <li>Update <code>best = max(best, leftArrow + rightArrow)</code>, and return <code>max(leftArrow, rightArrow)</code> upward.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n) — one visit per node</span> <span class="chip space">💾 Space O(h) — recursion stack, h the tree height</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The value check must compare the child to the <em>current</em> node, gating whether that child's arrow can extend — a child's returned length is only usable if the values match. The arrow that turns at the apex (<code>leftArrow + rightArrow</code>) is recorded globally, but only one side (<code>max</code>) can be handed to the parent, since a path continues down a single branch. Counting edges (not nodes) is why a lone node returns 0.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "It's the diameter pattern with an equality gate. Each call returns the longest equal-valued chain reaching down from that node, but a child's chain only counts if the child's value matches the parent — otherwise it's cut to zero. At each node I join the left and right qualifying chains for a candidate answer, update a global max, and pass only the longer single side upward. O(n) time, O(h) stack."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/trees/LongestUnivaluePath.java" target="_blank" rel="noopener">📄 LongestUnivaluePath.java</a>
+  </article>
+
+  <article class="problem" data-name="kth smallest element in a bst" data-lc="230">
+    <h4 class="problem-h"><span class="num">16</span> Kth Smallest Element in a BST
+      <a class="lc" href="https://leetcode.com/problems/kth-smallest-element-in-a-bst/" target="_blank" rel="noopener">LC 230 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-fav">⭐ Google fav</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Return the k-th smallest value (1-indexed) among all nodes of a BST.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> An in-order traversal of a BST visits values in ascending order, so the k-th node popped in an in-order walk is exactly the k-th smallest. Doing it iteratively with an explicit stack lets you stop the instant you pop the k-th node, touching only O(h + k) nodes rather than materializing the whole sorted sequence.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Maintain a stack and a <code>cur</code> pointer starting at the root.</li>
+      <li>Dive left, pushing every node, until <code>cur</code> is null (reaching the smallest unvisited).</li>
+      <li>Pop a node — the next value in ascending order; decrement <code>k</code>, and if it hits 0 return that value.</li>
+      <li>Otherwise move <code>cur</code> to the popped node's right child and repeat.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(h + k) — descend to the smallest, then pop k nodes</span> <span class="chip space">💾 Space O(h) — the stack holds at most one root-to-leaf spine</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The early stop at <code>--k == 0</code> is the whole efficiency win — a full in-order pass into a list is O(n) and discards the BST's advantage. k is 1-indexed, so decrement-then-test (not test-then-decrement) lands on the right node. If the interviewer says the tree is modified often and queries are frequent, the follow-up is to augment nodes with subtree counts for O(h) lookups.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "In-order traversal of a BST yields sorted order, so the k-th node I visit in-order is my answer. I do it iteratively with a stack: dive to the leftmost, pop the smallest, and each pop is the next value up. I count down k and return the moment I reach zero, so I only ever touch O(h + k) nodes instead of the whole tree. O(h) stack space."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/trees/KthSmallestElementInABST.java" target="_blank" rel="noopener">📄 KthSmallestElementInABST.java</a>
+  </article>
+
+  <article class="problem" data-name="lowest common ancestor of a bst" data-lc="235">
+    <h4 class="problem-h"><span class="num">17</span> Lowest Common Ancestor of a BST
+      <a class="lc" href="https://leetcode.com/problems/lowest-common-ancestor-of-a-binary-search-tree/" target="_blank" rel="noopener">LC 235 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-tagged">🔹 Google-tagged</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Given two nodes p and q in a BST, return their lowest common ancestor.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> In a general tree (LC 236 above) the LCA needs a full post-order split search because membership can only be confirmed by visiting subtrees. A BST hands you that information for free: the ordering says which side each target lives on without looking. Walk straight down — both targets smaller means go left, both larger means go right; the first node where they fall on opposite sides (or one equals the node) is the split point. That's O(h) time and O(1) space instead of 236's O(n)/O(h) post-order.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Start at the root with an iterative pointer.</li>
+      <li>If both <code>p.val</code> and <code>q.val</code> are less than the current value, move left.</li>
+      <li>If both are greater, move right.</li>
+      <li>Otherwise they split here (or one equals the node) — this is the LCA; return it.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(h) — a single root-to-split descent</span> <span class="chip space">💾 Space O(1) — iterative, no stack</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The contrast with the general-tree LCA (236) is the point: don't fall back to a post-order search when the BST property lets you decide direction by value comparison alone. The "split" includes the case where the current node <em>is</em> p or q (one value equals <code>node.val</code>), which correctly returns that node as an ancestor of itself. Comparison is by value here, valid because BST values are distinct.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "For a general tree I'd post-order search for the split point in O(n). But a BST tells me which subtree each node lives in just from its value, so I walk down from the root: if both targets are smaller I go left, if both larger I go right, and the first time they diverge — or one equals the current node — that node is the LCA. No recursion, O(h) time, O(1) space."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/trees/LowestCommonAncestorOfABST.java" target="_blank" rel="noopener">📄 LowestCommonAncestorOfABST.java</a>
+  </article>
+
+  <article class="problem" data-name="construct binary tree from preorder and inorder" data-lc="105">
+    <h4 class="problem-h"><span class="num">18</span> Construct Binary Tree from Preorder and Inorder
+      <a class="lc" href="https://leetcode.com/problems/construct-binary-tree-from-preorder-and-inorder-traversal/" target="_blank" rel="noopener">LC 105 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-fav">⭐ Google fav</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Reconstruct a binary tree from its preorder and inorder traversal arrays (values are unique).</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Preorder lists roots in the exact order we want to create them (root before either subtree), so a single left-to-right pointer over preorder always names the next root. That root's position in inorder splits the remaining inorder window into the left subtree (left of it) and right subtree (right of it). A value→inorder-index map makes each split O(1); recursing left-first keeps the preorder pointer synced with the roots it is about to consume.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Build a <code>value → inorder index</code> map for O(1) splits, and keep a global <code>preIdx</code> starting at 0.</li>
+      <li>Recurse over an inorder window <code>[inLo, inHi]</code>; if <code>inLo &gt; inHi</code> the window is empty, return null.</li>
+      <li>Take <code>preorder[preIdx++]</code> as the root and look up its inorder position <code>mid</code>.</li>
+      <li>Build the left subtree from <code>[inLo, mid-1]</code> first (so preorder stays aligned), then the right from <code>[mid+1, inHi]</code>.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n) — each node created once, splits are O(1) via the map</span> <span class="chip space">💾 Space O(n) — the index map plus O(h) recursion</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> You must recurse <em>left before right</em>, because the shared <code>preIdx</code> advances as you consume roots and the left subtree's roots come first in preorder — swapping the order corrupts the tree. The inorder index map is what turns an O(n²) linear-scan-for-root into O(n); without it every split rescans. Uniqueness of values is what lets the map work.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Preorder gives me roots top-down, so I sweep a single pointer through it to name each next root. For each root I find its spot in inorder, which partitions the inorder window into the left and right subtrees. I recurse left first so the preorder pointer stays aligned with the roots it's about to build. A precomputed value-to-index map makes each split O(1), so the whole build is O(n)."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/trees/ConstructBinaryTreeFromPreorderAndInorder.java" target="_blank" rel="noopener">📄 ConstructBinaryTreeFromPreorderAndInorder.java</a>
   </article>
 
   <div class="panel practice">
@@ -4020,7 +4565,7 @@ Map&lt;Integer,Integer&gt; pending = new HashMap&lt;&gt;();   // value -> times 
 <section class="chapter" id="intervals" data-title="Intervals &amp; Line Sweep">
   <h2 class="chapter-title"><span class="emoji">📅</span> Intervals &amp; Line Sweep</h2>
   <p class="lede">Interval problems are about reasoning over <em>ranges on a number line</em> — meetings, bookings, building footprints, free slots. The two universal weapons are <strong>sort-then-sweep</strong> (sort by start, then make one linear pass where overlap can only happen between neighbours) and the <strong>ordered/heap structure</strong> (a min-heap of end times or a <code>TreeMap</code> of disjoint ranges) when you need to track concurrency or mutate the timeline online. This family is high-ROI for Google L6 because the same five-line idiom unlocks an entire ladder of questions, from a one-liner overlap check up to the Skyline sweep — and interviewers love to start easy and escalate.</p>
-  <p class="source">Source: <em>Prep Tracker</em> &amp; <em>Deep Research Adds</em> tabs · <span class="count">10 problems</span></p>
+  <p class="source">Source: <em>Prep Tracker</em> &amp; <em>Deep Research Adds</em> tabs · <span class="count">11 problems</span></p>
 
   <div class="panel">
     <h3>🎯 Recognition signals</h3>
@@ -4115,6 +4660,11 @@ int roomsNeeded = ends.size();
             <td><span class="pill diff-hard">Hard</span></td>
             <td><span class="badge b-sig">🟦 Google signature</span></td>
             <td>Line sweep + TreeMap height multiset</td><td>O(n log n)</td><td>O(n)</td></tr>
+        <tr><td>11</td><td>Non-overlapping Intervals</td>
+            <td><a class="lc" href="https://leetcode.com/problems/non-overlapping-intervals/" target="_blank" rel="noopener">LC 435 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
+            <td>Greedy by earliest end</td><td>O(n log n)</td><td>O(1)</td></tr>
       </tbody>
     </table>
   </div>
@@ -4317,6 +4867,25 @@ int roomsNeeded = ends.size();
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/intervals/TheSkylineProblem.java" target="_blank" rel="noopener">📄 TheSkylineProblem.java</a>
   </article>
 
+  <article class="problem" data-name="non-overlapping intervals" data-lc="435">
+    <h4 class="problem-h"><span class="num">11</span> Non-overlapping Intervals
+      <a class="lc" href="https://leetcode.com/problems/non-overlapping-intervals/" target="_blank" rel="noopener">LC 435 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-tagged">🔹 Google-tagged</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Remove the minimum number of intervals so the remaining ones are pairwise non-overlapping.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> This is classic activity selection. Sort by <em>end</em> coordinate and greedily keep the interval that finishes earliest, because the earliest finish leaves the most room for later intervals — any optimal schedule can be rewritten to start this way (exchange argument). Drop any interval whose start precedes the last kept end; the answer is <code>total − kept</code>.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Sort intervals by <code>end</code>. Keep the first as the initial kept interval; set <code>lastEnd = intervals[0][1]</code>, <code>kept = 1</code>.</li>
+      <li>For each later interval: if its start <code>&gt;=</code> <code>lastEnd</code>, keep it (<code>kept++</code>, <code>lastEnd = its end</code>); otherwise it overlaps the earlier-finishing kept interval, so drop it (leave <code>lastEnd</code> unchanged).</li>
+      <li>Return <code>intervals.length − kept</code>.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n log n) — the sort dominates; the sweep is linear</span> <span class="chip space">💾 Space O(1) — just the running last-kept end and a counter (besides sort scratch)</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Sort by <em>end</em>, not start — sorting by start and keeping the earliest-starting interval is the wrong greedy. Use <code>&gt;=</code> when testing the start: a meeting touching at the boundary (<code>start == lastEnd</code>) does not overlap and should be kept. Count what you <em>remove</em> (total − kept), not what you keep. Empty input returns 0.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "It's activity selection in disguise — maximise how many intervals I keep, then removals are the rest. I sort by end time and greedily keep each interval that doesn't overlap the last one I kept, since finishing earliest leaves the most room. An exchange argument proves the earliest-end choice is safe. Sort dominates, so O(n log n)."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/intervals/NonOverlappingIntervals.java" target="_blank" rel="noopener">📄 NonOverlappingIntervals.java</a>
+  </article>
+
   <div class="panel practice">
     <h3>🔁 Practice plan</h3>
     <p>Climb the ladder in order: start by re-deriving <strong>Meeting Rooms</strong> and <strong>Merge Intervals</strong> from a blank file — they encode the sort-then-sweep idiom every later problem reuses. Then do <strong>Insert Interval</strong> (the no-sort three-phase scan) and <strong>Meeting Rooms II</strong> (the min-heap concurrency trick). Next master the ordered-map family — <strong>My Calendar I</strong> → <strong>Range Module</strong> — practising <code>floorKey</code>/<code>ceilingKey</code> navigation until the neighbour logic is reflexive. Finish with the two true sweeps, <strong>Employee Free Time</strong> and <strong>The Skyline Problem</strong>, saying the edge-encoding and tie-break rules out loud. Google-favourite follow-ups worth rehearsing: <em>My Calendar II/III</em> (overlap counting with a difference array / segment tree), <em>Merge Intervals returning total covered length</em>, and <em>Meeting Rooms II via a +1/−1 sweep</em> as an alternative to the heap.</p>
@@ -4333,7 +4902,7 @@ int roomsNeeded = ends.size();
 <section class="chapter" id="backtracking" data-title="Backtracking">
   <h2 class="chapter-title"><span class="emoji">🔙</span> Backtracking</h2>
   <p class="lede">Backtracking is systematic, DFS-driven exploration of a decision tree: at each step you <em>choose</em>, recurse, then <em>un-choose</em>, pruning whole subtrees the moment they can't lead to a valid answer. It is one of the highest-ROI families for Google L6 because so many onsite problems — combinatorial enumeration, constraint satisfaction, and "generate every valid X" — reduce to the same choose/explore/un-choose skeleton, and interviewers grade you on whether you can prune intelligently and reason about the branching factor.</p>
-  <p class="source">Source: <em>Prep Tracker</em> &amp; <em>Deep Research Adds</em> tabs · <span class="count">9 problems</span></p>
+  <p class="source">Source: <em>Prep Tracker</em> &amp; <em>Deep Research Adds</em> tabs · <span class="count">11 problems</span></p>
 
   <div class="panel">
     <h3>🎯 Recognition signals</h3>
@@ -4420,6 +4989,16 @@ int roomsNeeded = ends.size();
             <td><span class="pill diff-hard">Hard</span></td>
             <td><span class="badge b-sig">🟦 Google signature</span></td>
             <td>Relative-frame DFS + go-back</td><td>O(N)</td><td>O(N)</td></tr>
+        <tr><td>10</td><td>Strobogrammatic Number II</td>
+            <td><a class="lc" href="https://leetcode.com/problems/strobogrammatic-number-ii/" target="_blank" rel="noopener">LC 247 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
+            <td>Build mirror pairs inward</td><td>O(5<sup>n/2</sup>)</td><td>O(n)</td></tr>
+        <tr><td>11</td><td>Word Search</td>
+            <td><a class="lc" href="https://leetcode.com/problems/word-search/" target="_blank" rel="noopener">LC 79 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-fav">⭐ Google fav</span></td>
+            <td>DFS + in-place marking</td><td>O(m·n·4<sup>L</sup>)</td><td>O(L)</td></tr>
       </tbody>
     </table>
   </div>
@@ -4597,6 +5176,45 @@ int roomsNeeded = ends.size();
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/backtracking/RobotRoomCleaner.java" target="_blank" rel="noopener">📄 RobotRoomCleaner.java</a>
   </article>
 
+  <article class="problem" data-name="strobogrammatic number ii" data-lc="247">
+    <h4 class="problem-h"><span class="num">10</span> Strobogrammatic Number II
+      <a class="lc" href="https://leetcode.com/problems/strobogrammatic-number-ii/" target="_blank" rel="noopener">LC 247 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-tagged">🔹 Google-tagged</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Return every number of length n that reads the same after a 180° rotation (as strings, no leading zeros except <code>"0"</code> itself).</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Only five mirror-pairs survive a 180° rotation: (0,0), (1,1), (6,9), (8,8), (9,6). A strobogrammatic number is symmetric — rotating swaps position <code>i</code> with <code>len−1−i</code> and maps each digit to its partner — so build from the <em>outside in</em>, fixing a valid (left,right) pair each step. That enumerates exactly the valid numbers and nothing else. Two guards: the outermost pair skips (0,0) to avoid a leading zero (unless n==1), and an odd centre must be a self-rotatable digit {0,1,8}.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Fill a <code>char[n]</code> buffer with two pointers <code>left</code>/<code>right</code>; recurse moving them toward the middle.</li>
+      <li>When <code>left &gt; right</code> the number is complete — snapshot the buffer.</li>
+      <li>When <code>left == right</code> (odd centre), place only a self-rotatable digit (<code>pair[0] == pair[1]</code>: 0, 1, 8) and record.</li>
+      <li>Otherwise loop the five pairs, skipping <code>(0,0)</code> when <code>left == 0</code>, set <code>buf[left]=pair[0]</code> / <code>buf[right]=pair[1]</code>, and recurse inward.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(5<sup>n/2</sup>) — five choices per symmetric pair, ~n/2 pairs</span> <span class="chip space">💾 Space O(n) — recursion depth plus the char buffer being filled</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The leading-zero ban applies only to the <em>outermost</em> pair (<code>left == 0</code>) and only for n &gt; 1; for n == 1 the single centre <code>0</code> is valid. The odd centre must be self-rotatable — <code>6</code> and <code>9</code> can never sit in the middle. This is the sibling of Confusing Number II (1088, above) but distinct: here the rotation must equal the number itself, not merely differ.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "A strobogrammatic number is symmetric under 180° rotation, and only five digit-pairs survive that rotation, so I build the number from the outside in — fixing a left/right mirror pair at each step and recursing toward the centre. That generates exactly the valid numbers with no filtering. I just guard two cases: the outermost pair can't be (0,0) for n &gt; 1, and an odd-length centre must be a self-rotatable digit. It's O(5^(n/2))."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/backtracking/StrobogrammaticNumberII.java" target="_blank" rel="noopener">📄 StrobogrammaticNumberII.java</a>
+  </article>
+
+  <article class="problem" data-name="word search" data-lc="79">
+    <h4 class="problem-h"><span class="num">11</span> Word Search
+      <a class="lc" href="https://leetcode.com/problems/word-search/" target="_blank" rel="noopener">LC 79 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-fav">⭐ Google fav</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Given an m×n grid of characters and a word, decide whether the word can be spelled along a path of orthogonally adjacent cells, each cell used at most once.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> DFS from every cell, but fold visited-tracking into the board itself: before recursing, overwrite the current cell with a sentinel <code>'#'</code> so no path steps on it twice, then restore the original character on the way out. This in-place mark/restore makes each backtracking frame O(1) extra space, and bailing the moment <code>word.charAt(index)</code> mismatches prunes the vast majority of dead branches before they expand.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Try each grid cell as a starting root; return true on the first DFS that matches.</li>
+      <li>In <code>dfs(index, r, c)</code>: succeed when <code>index == word.length()</code>; fail on out-of-bounds or when <code>board[r][c] != word.charAt(index)</code>.</li>
+      <li>Save the cell, write <code>'#'</code>, recurse into all four neighbours for <code>index+1</code> (short-circuit on success), then restore the saved char to un-choose.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(m·n·4<sup>L</sup>) — m·n DFS roots, each branching up to 4 ways for L = word length</span> <span class="chip space">💾 Space O(L) — recursion depth equals the matched prefix length; no separate visited grid</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Always restore the cell on backtrack — a missed restore corrupts the board for sibling paths. The mismatch check must precede mutation, and using a sentinel assumes <code>'#'</code> never appears as a real board character. This is the BASE of Word Search II (212), which swaps the single word for a trie to search many words against one board traversal.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "I DFS from each cell, matching the word character by character. To enforce 'each cell used once' without a separate visited grid, I temporarily overwrite the cell with a sentinel before recursing and restore it on the way back, which keeps the per-frame space O(1). I prune the instant a character mismatches, so most branches die early. Worst case is O(m·n·4^L) with O(L) recursion depth."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/backtracking/WordSearch.java" target="_blank" rel="noopener">📄 WordSearch.java</a>
+  </article>
+
   <div class="panel practice">
     <h3>🔁 Practice plan</h3>
     <p>Work the ladder easiest→hardest so the skeleton becomes muscle memory before the twists. From a blank file, re-derive in this order: <strong>Subsets</strong> (the bare choose/explore/un-choose tree) → <strong>Combination Sum</strong> (start-index vs reuse) → <strong>Permutations</strong> (used[] flags, no start index) → <strong>Letter Combinations</strong> &amp; <strong>Generate Parentheses</strong> (string-building + prune-by-construction) → <strong>N-Queens</strong> (constraint sets + diagonal invariants) → <strong>Expression Add Operators</strong> (the <code>cur−prev+prev·operand</code> identity) → <strong>Robot Room Cleaner</strong> (relative frame + physical go-back). Drill the three loop idioms until you never confuse them. Google-favourite follow-ups to rehearse: <em>Subsets II / Combination Sum II</em> (dedup with sorted skip), <em>Permutations II</em> (duplicates), <em>Word Search</em> (grid DFS backtracking), and <em>Sudoku Solver</em> (N-Queens-style constraint tracking).</p>
@@ -4615,7 +5233,7 @@ int roomsNeeded = ends.size();
 <section class="chapter" id="matrix" data-title="Matrix">
   <h2 class="chapter-title"><span class="emoji">🔲</span> Matrix</h2>
   <p class="lede">Grid problems split into two flavors: <em>geometric index manipulation</em> — traversing or transforming a 2D array in place by reasoning about coordinate mappings and boundaries — and <em>grids as graphs</em>, where cells are nodes and adjacency drives DP or DFS. They're high-ROI for Google L6 because the in-place ones test whether you can nail off-by-one boundary logic under pressure, and the graph ones test whether you spot that a DAG (strictly increasing values) or a unique-anchor trick removes the need for a visited set entirely.</p>
-  <p class="source">Source: <em>Prep Tracker</em> &amp; <em>Deep Research Adds</em> tabs · <span class="count">7 problems</span></p>
+  <p class="source">Source: <em>Prep Tracker</em> &amp; <em>Deep Research Adds</em> tabs · <span class="count">9 problems</span></p>
 
   <div class="panel">
     <h3>🎯 Recognition signals</h3>
@@ -4695,6 +5313,16 @@ int dfs(int r, int c) {
             <td><span class="pill diff-hard">Hard</span></td>
             <td><span class="badge b-sig">🟦 Google signature</span></td>
             <td>Memoized DFS on a DAG</td><td>O(m·n)</td><td>O(m·n)</td></tr>
+        <tr><td>8</td><td>Best Meeting Point</td>
+            <td><a class="lc" href="https://leetcode.com/problems/best-meeting-point/" target="_blank" rel="noopener">LC 296 ↗</a></td>
+            <td><span class="pill diff-hard">Hard</span></td>
+            <td><span class="badge b-sig">🟦 Google signature</span></td>
+            <td>Median minimizes Manhattan</td><td>O(rows·cols)</td><td>O(#1s)</td></tr>
+        <tr><td>9</td><td>Maximal Rectangle</td>
+            <td><a class="lc" href="https://leetcode.com/problems/maximal-rectangle/" target="_blank" rel="noopener">LC 85 ↗</a></td>
+            <td><span class="pill diff-hard">Hard</span></td>
+            <td><span class="badge b-sig">🟦 Google signature</span></td>
+            <td>Per-row histogram + monotonic stack</td><td>O(rows·cols)</td><td>O(cols)</td></tr>
       </tbody>
     </table>
   </div>
@@ -4841,6 +5469,46 @@ int dfs(int r, int c) {
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/matrix/LongestIncreasingPath.java" target="_blank" rel="noopener">📄 LongestIncreasingPath.java</a>
   </article>
 
+  <article class="problem" data-name="best meeting point" data-lc="296">
+    <h4 class="problem-h"><span class="num">8</span> Best Meeting Point
+      <a class="lc" href="https://leetcode.com/problems/best-meeting-point/" target="_blank" rel="noopener">LC 296 ↗</a>
+      <span class="pill diff-hard">Hard</span>
+      <span class="badge b-sig">🟦 Google signature</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Given a grid where each <code>1</code> marks a person's home, find the minimum total Manhattan travel distance for everyone to meet at a single cell.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Manhattan distance <code>|r1-r2| + |c1-c2|</code> separates into an independent row-cost and column-cost, so the optimal meeting row and column can be chosen <em>separately</em>. For one axis the task is "pick <code>p</code> minimizing <code>Σ|x_i - p|</code>", whose minimizer is the <strong>median</strong>, not the mean: stepping <code>p</code> toward the side holding more points shortens more distances than it lengthens, so the sum drops until equally many points sit on each side. No sort is needed — scanning rows outermost yields row indices already ascending, and scanning columns outermost yields column indices already ascending.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Collect all <code>1</code>-cells' row indices by looping rows outer, columns inner — they come out ascending.</li>
+      <li>Collect their column indices by looping columns outer, rows inner — also ascending.</li>
+      <li>For each sorted axis, sum absolute deviations from the median with a two-pointer inward walk: <code>hi - lo</code> is each pair's full span, exactly their combined distance to any point between them.</li>
+      <li>Return rowCost + colCost.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(rows·cols) — two passes over the grid to gather coordinates</span> <span class="chip space">💾 Space O(#1s) — the two coordinate lists</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The median, not the mean, is the minimizer — the mean minimizes <em>squared</em> deviations, a different objective. The two-pointer trick (<code>Σ sorted[hi] - sorted[lo]</code>) sidesteps even locating the median explicitly, and handles an even count of points (any value in the middle gap is optimal). Empty grids (no people) return 0.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Manhattan distance splits into x and y independently, so I solve each axis on its own. On one axis I'm minimizing the sum of absolute deviations, which is the median — moving toward the denser side always helps until the sides balance. I gather coordinates in sorted order for free by choosing the scan direction, then pair smallest with largest to sum the spans, giving O(rows·cols)."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/matrix/BestMeetingPoint.java" target="_blank" rel="noopener">📄 BestMeetingPoint.java</a>
+  </article>
+
+  <article class="problem" data-name="maximal rectangle" data-lc="85">
+    <h4 class="problem-h"><span class="num">9</span> Maximal Rectangle
+      <a class="lc" href="https://leetcode.com/problems/maximal-rectangle/" target="_blank" rel="noopener">LC 85 ↗</a>
+      <span class="pill diff-hard">Hard</span>
+      <span class="badge b-sig">🟦 Google signature</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Given a binary matrix of <code>'0'</code>/<code>'1'</code>, find the area of the largest rectangle containing only <code>1</code>s.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Every maximal all-1s rectangle has <em>some</em> row as its base, so sweep rows top→bottom maintaining a column histogram where <code>heights[c]</code> is the run of consecutive 1s ending at the current row in column <code>c</code> (reset to 0 the instant a 0 breaks the run). The answer is the max over all rows of "largest rectangle in this row's histogram" — that sub-problem is <strong>Largest Rectangle in Histogram (LC 84)</strong>, solved with a monotonic increasing stack: when a shorter bar pops a taller one, the popped bar learns exactly how far left and right it can extend while remaining the shortest, and height × width is the best rectangle capped by it.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Keep a <code>heights[cols]</code> array; for each row set <code>heights[c] = row[c] == '1' ? heights[c] + 1 : 0</code>.</li>
+      <li>After updating the histogram for a row, run the LC 84 routine and track the global best.</li>
+      <li>In the histogram routine, push bar indices on a stack in strictly increasing height; when the current bar is <code>≤</code> the stack top, pop and measure <code>height × width</code> where width spans from the bar now below top (exclusive) to <code>i</code> (exclusive).</li>
+      <li>A sentinel at <code>i == cols</code> (height 0) flushes every remaining bar.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(rows·cols) — each row builds its histogram in O(cols) and each bar is pushed/popped at most once</span> <span class="chip space">💾 Space O(cols) — the heights array and the index stack</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> This composes two classics: it reuses Largest Rectangle in Histogram (84, stack) per row, and is the rectangle cousin of Maximal Square (221, which uses a simpler min-of-three-neighbours DP because squares need only the limiting side). Resetting <code>heights[c]</code> to 0 on a <code>'0'</code> is essential — a wall breaks the column's run. The width formula differs when the stack empties (<code>i</code>) versus not (<code>i - stack[top] - 1</code>); the sentinel pass is what guarantees no tall bar is left unmeasured.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "I reduce a 2-D problem to a stack of 1-D ones: every all-1s rectangle bottoms out on some row, so I carry a column histogram of consecutive-1 heights and, per row, solve Largest Rectangle in Histogram. The histogram routine uses a monotonic stack so each bar, when popped by a shorter one, discovers its maximal width as the shortest bar. That's O(rows·cols) overall — it directly composes LC 84, and contrasts with Maximal Square's simpler DP since rectangles aren't constrained to equal sides."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/matrix/MaximalRectangle.java" target="_blank" rel="noopener">📄 MaximalRectangle.java</a>
+  </article>
+
   <div class="panel practice">
     <h3>🔁 Practice plan</h3>
     <p>Start with the three in-place geometry problems (54, 48, 73) to drill boundary and coordinate-mapping precision, then move to the graph/DP trio (419 anchor-counting, 562 directional DP, 329 memoized DAG). From a blank file, re-derive: the spiral's two collapse guards (54), the transpose-then-reverse decomposition and why transpose stays in the upper triangle (48), and the "apply first-row/col flags last" ordering in Set Matrix Zeroes (73). Rehearse these Google-favourite follow-ups out loud: "rotate 90° counter-clockwise instead" (48), "set zeroes in true O(1) space" (73, this marker trick), and "longest increasing path without recursion" (329, topological peel). The single highest-value insight to internalize is that strict monotonicity makes a grid a DAG, killing the visited set.</p>
@@ -4858,7 +5526,7 @@ int dfs(int r, int c) {
 <section class="chapter" id="graphs" data-title="Graphs — BFS/DFS, Topological Sort, Union-Find &amp; Grids">
   <h2 class="chapter-title"><span class="emoji">🕸️</span> Graphs — BFS/DFS, Topological Sort, Union-Find &amp; Grids</h2>
   <p class="lede">Graphs are the connective tissue of the L6 interview: islands, course prerequisites, account merges and rolling-ball mazes are all the same handful of traversals in disguise — flood-fill DFS, multi-source/level BFS, Kahn's topological sort, union-find, and weighted shortest paths (Dijkstra / Bellman-Ford). Because almost every "real system" modelling question (dependency resolution, network reachability, grouping) reduces to one of these, fluency here is the single highest-ROI pattern family to over-prepare. The skill the interviewer is really probing is <em>modelling</em> — turning a word problem into nodes and edges, then picking the cheapest traversal that fits the structure.</p>
-  <p class="source">Source: <em>Prep Tracker, Deep Research Adds &amp; curated Staff gaps</em> · <span class="count">19 problems</span></p>
+  <p class="source">Source: <em>Prep Tracker, Deep Research Adds &amp; curated Staff gaps</em> · <span class="count">20 problems</span></p>
 
   <div class="panel">
     <h3>🎯 Recognition signals</h3>
@@ -5013,6 +5681,11 @@ boolean union(int[] p, int[] rk, int a, int b) {
             <td><span class="pill diff-hard">Hard</span></td>
             <td><span class="badge b-sig">🟦 Google signature</span></td>
             <td>BFS over (pos, speed) states</td><td>O(T log T)</td><td>O(T log T)</td></tr>
+        <tr><td>20</td><td>01 Matrix</td>
+            <td><a class="lc" href="https://leetcode.com/problems/01-matrix/" target="_blank" rel="noopener">LC 542 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
+            <td>Multi-source BFS</td><td>O(rows·cols)</td><td>O(rows·cols)</td></tr>
       </tbody>
     </table>
   </div>
@@ -5379,6 +6052,25 @@ boolean union(int[] p, int[] rk, int a, int b) {
     <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The visited key must include speed, not just position — the same cell at different speeds is a different state. Without the <code>2·target</code> band the search runs forever. The DP alternative (<code>dp[target]</code>: accelerate just past then reverse, or stop short, reverse, recurse) also runs in O(target log target).</div>
     <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "I treat (position, speed) as the node and each instruction as an edge, so the minimum instruction count is BFS. I bound positions to roughly twice the target since no optimal path overshoots further, which keeps the state graph finite and the search terminating."</div>
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/graphs/RaceCar.java" target="_blank" rel="noopener">📄 RaceCar.java</a>
+  </article>
+
+  <article class="problem" data-name="01 matrix" data-lc="542">
+    <h4 class="problem-h"><span class="num">20</span> 01 Matrix
+      <a class="lc" href="https://leetcode.com/problems/01-matrix/" target="_blank" rel="noopener">LC 542 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-tagged">🔹 Google-tagged</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> For each cell of a binary matrix, return its distance to the nearest <code>0</code>, moving only between 4-adjacent cells.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> This is shortest-distance-to-nearest-source, so seed the BFS queue with <em>all</em> zeros at distance 0 at once rather than running a separate BFS from each one. The wavefront expands one ring per round, so the first time it touches a <code>1</code> it has arrived from the closest zero — that arrival distance is the answer. Per-1 BFS would recompute the same wavefront over and over; one multi-source sweep does it in a single pass.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Scan the grid: enqueue every <code>0</code> with distance 0, and mark every <code>1</code> as unvisited (here <code>dist = -1</code>).</li>
+      <li>BFS: pop a cell, and for each in-bounds neighbour still at <code>-1</code>, set its distance to <code>dist[cur] + 1</code> and enqueue it.</li>
+      <li>Marking on enqueue guarantees each cell is processed exactly once; return the filled <code>dist</code> grid.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(rows·cols) — each cell is enqueued and dequeued at most once</span> <span class="chip space">💾 Space O(rows·cols) — the queue can hold a whole ring of the grid</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Seeding from the zeros (not the ones) is the crux — a BFS rooted at each <code>1</code> blows up to O((rows·cols)²). Mark a cell visited the instant it's enqueued, not when dequeued, or neighbours get re-added with stale distances. Using <code>-1</code> as the unvisited sentinel doubles as the "not yet reached" test. A DP alternative (two sweeps: top-left then bottom-right, taking <code>min</code> of neighbours + 1) is also O(rows·cols) and O(1) extra.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Every cell wants its nearest zero, so instead of searching outward from each one, I push all the zeros into the BFS queue together as level-0 sources. The wave spreads a ring at a time, and the first wave to reach a one carries its shortest distance. Marking cells as I enqueue keeps it a single linear pass over the grid. I could also do it as two DP sweeps if asked for O(1) space."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/graphs/ZeroOneMatrix.java" target="_blank" rel="noopener">📄 ZeroOneMatrix.java</a>
   </article>
 
   <div class="panel practice">
@@ -5896,7 +6588,7 @@ for (int iter = 0; iter &lt; n; iter++) {
 <section class="chapter" id="greedy" data-title="Greedy">
   <h2 class="chapter-title"><span class="emoji">🤑</span> Greedy</h2>
   <p class="lede">Greedy algorithms commit to the locally-best choice at each step and never look back — the hard part is <em>proving</em> that local optimality rolls up to a global optimum (usually via an exchange argument or a conservation/invariant argument). Google L6 loves these because the code is tiny but the justification separates engineers who memorize from those who can reason; "why is greedy correct here?" is the real question.</p>
-  <p class="source">Source: <em>Prep Tracker</em> &amp; <em>Deep Research Adds</em> tabs · <span class="count">3 problems</span></p>
+  <p class="source">Source: <em>Prep Tracker</em> &amp; <em>Deep Research Adds</em> tabs · <span class="count">4 problems</span></p>
 
   <div class="panel">
     <h3>🎯 Recognition signals</h3>
@@ -5951,6 +6643,11 @@ while (pq.size() &gt; 1) {
             <td><span class="pill diff-medium">Medium</span></td>
             <td><span class="badge b-reported">📌 Reported L6</span></td>
             <td>Min-heap merge (prefix code)</td><td>O(k log k)</td><td>O(k)</td></tr>
+        <tr><td>4</td><td>Minimum Domino Rotations for Equal Row</td>
+            <td><a class="lc" href="https://leetcode.com/problems/minimum-domino-rotations-to-equal-row/" target="_blank" rel="noopener">LC 1007 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
+            <td>Only two candidate targets</td><td>O(n)</td><td>O(1)</td></tr>
       </tbody>
     </table>
   </div>
@@ -6017,6 +6714,26 @@ while (pq.size() &gt; 1) {
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/greedy/HuffmanCoding.java" target="_blank" rel="noopener">📄 HuffmanCoding.java</a>
   </article>
 
+  <article class="problem" data-name="minimum domino rotations for equal row" data-lc="1007">
+    <h4 class="problem-h"><span class="num">4</span> Minimum Domino Rotations for Equal Row
+      <a class="lc" href="https://leetcode.com/problems/minimum-domino-rotations-to-equal-row/" target="_blank" rel="noopener">LC 1007 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-tagged">🔹 Google-tagged</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Given dominoes as parallel <code>tops</code>/<code>bottoms</code> arrays, return the fewest top↔bottom swaps to make one whole row (all tops or all bottoms) hold a single value, or <code>-1</code> if impossible.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> If some value <code>X</code> can fill an entire row, <code>X</code> must appear on <em>every</em> domino — and therefore on the very first domino. So the only candidates worth testing are <code>tops[0]</code> and <code>bottoms[0]</code>; check just those two with linear rotation counts. A candidate fails the instant some domino shows it on neither face.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>For a candidate <code>target</code>, scan all dominoes counting <code>rotTop</code> (swaps to bring <code>target</code> to the top) and <code>rotBottom</code> (to the bottom); if any domino has <code>target</code> on neither face, return a sentinel <code>n+1</code> (impossible).</li>
+      <li>The cost for that target is <code>min(rotTop, rotBottom)</code>.</li>
+      <li>Take <code>best = min(rotationsFor(tops[0]), rotationsFor(bottoms[0]))</code>.</li>
+      <li>Return <code>best &gt; n ? -1 : best</code>.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n) — at most two linear passes (a small constant per candidate)</span> <span class="chip space">💾 Space O(1) — only a few counters</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> You must test <em>both</em> <code>tops[0]</code> and <code>bottoms[0]</code> — the fill value may be on either face of the first domino. Use a sentinel (<code>n+1</code>) for "impossible" so the final <code>&gt; n</code> check cleanly distinguishes it from a real answer of 0. Don't loop over all six possible values; only the first domino's two faces can ever work, which is the whole point of the O(n) bound.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Any value that fills a whole row has to be on every domino, so it has to be on the first one — that leaves only two candidates, tops[0] and bottoms[0]. For each I count, in one pass, the rotations to push it all to the top versus all to the bottom, bailing out if a domino can't supply it. The smaller count across both candidates is the answer; if neither works, -1. Linear time, constant space."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/greedy/MinimumDominoRotations.java" target="_blank" rel="noopener">📄 MinimumDominoRotations.java</a>
+  </article>
+
   <div class="panel practice">
     <h3>🔁 Practice plan</h3>
     <p>Do <strong>Gas Station (134)</strong> first and practice <em>saying the conservation proof</em> — that's the whole question. Then <strong>Task Scheduler (621)</strong>: derive the framing formula on paper and explain the <code>max(framed, length)</code> guard with a dense example. Finish with <strong>Huffman (—)</strong>, which is the canonical "prove greedy is optimal via exchange argument" exercise; rebuild the tree from a blank file and walk the encode/decode round-trip. Google follow-ups to rehearse: Jump Game II (45) and Jump Game (55) as single-sweep greedy; Reorganize String (767) as the heap cousin of Task Scheduler; and "what if the alphabet were arbitrary / Unicode?" for the scheduler.</p>
@@ -6033,7 +6750,7 @@ while (pq.size() &gt; 1) {
 <section class="chapter" id="dp" data-title="Dynamic Programming">
   <h2 class="chapter-title"><span class="emoji">📐</span> Dynamic Programming</h2>
   <p class="lede">Dynamic programming is the art of recognising that a hard problem is just a small recurrence over overlapping subproblems, then storing each subproblem's answer exactly once. It is the single highest-ROI family for a Google L6 loop: interviewers use it to test whether you can name the <em>state</em>, write the <em>transition</em>, justify the <em>base case</em>, and then casually drop the table to O(1) rolling variables — all while talking. Master the handful of idioms here (linear scan, unbounded knapsack, grid walk, two-string edit, digit DP, and state-machine counting) and most "medium-hard" DP questions collapse into a known shape.</p>
-  <p class="source">Source: <em>Prep Tracker, Deep Research Adds &amp; curated Staff gaps</em> · <span class="count">18 problems</span></p>
+  <p class="source">Source: <em>Prep Tracker, Deep Research Adds &amp; curated Staff gaps</em> · <span class="count">19 problems</span></p>
 
   <div class="panel">
     <h3>🎯 Recognition signals</h3>
@@ -6172,6 +6889,11 @@ return dp[m][n];</code></pre>
             <td><span class="pill diff-hard">Hard</span></td>
             <td><span class="badge b-fav">⭐ Google fav</span></td>
             <td>Information-theoretic counting</td><td>O(log buckets)</td><td>O(1)</td></tr>
+        <tr><td>19</td><td>Maximum Profit in Job Scheduling</td>
+            <td><a class="lc" href="https://leetcode.com/problems/maximum-profit-in-job-scheduling/" target="_blank" rel="noopener">LC 1235 ↗</a></td>
+            <td><span class="pill diff-hard">Hard</span></td>
+            <td><span class="badge b-sig">🟦 Google signature</span></td>
+            <td>Sort by end + DP + binary search</td><td>O(n log n)</td><td>O(n)</td></tr>
       </tbody>
     </table>
   </div>
@@ -6524,6 +7246,26 @@ return dp[m][n];</code></pre>
     <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Don't model this as a DP table or a search — it's a base-<code>(t+1)</code> encoding argument. Compute the count by repeated multiplication, not <code>Math.log</code>, to avoid float rounding (<code>log</code> can return 6.9999 instead of 7). Edge case: a single bucket needs 0 pigs. Each pig encodes one digit in base <code>t+1</code> — that mental model is what interviewers want to hear.</div>
     <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Each pig is one base-(t+1) digit: across t rounds it can die in any round or survive, giving t+1 outcomes. p pigs distinguish (t+1)^p cases, so I need the smallest p with (t+1)^p ≥ buckets. I find it by multiplying t+1 until it covers the buckets — integer math, no log rounding."</div>
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/dp/PoorPigs.java" target="_blank" rel="noopener">📄 PoorPigs.java</a>
+  </article>
+
+  <article class="problem" data-name="maximum profit in job scheduling" data-lc="1235">
+    <h4 class="problem-h"><span class="num">19</span> Maximum Profit in Job Scheduling
+      <a class="lc" href="https://leetcode.com/problems/maximum-profit-in-job-scheduling/" target="_blank" rel="noopener">LC 1235 ↗</a>
+      <span class="pill diff-hard">Hard</span>
+      <span class="badge b-sig">🟦 Google signature</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Given jobs as <code>(start, end, profit)</code>, pick a subset of non-overlapping jobs that maximises total profit.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> This is weighted interval scheduling. Sort jobs by <em>end</em> time so that "best profit using only jobs that finish early enough" becomes a prefix you can binary-search into. <strong>State</strong> <code>dp[i]</code> = best total profit using <code>jobs[0..i]</code> (by end), which is monotonic non-decreasing. <strong>Transition</strong>: either skip job <code>i</code> (<code>dp[i-1]</code>) or take it — add its profit to <code>dp[idx]</code>, where <code>idx</code> is the latest job whose end <code>&lt;=</code> this job's start, found by binary search: <code>dp[i] = max(skip, take)</code>.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Build job triples and sort by <code>end</code> time; record a parallel <code>ends[]</code> array.</li>
+      <li>For each <code>i</code>: binary-search <code>ends[0..i-1]</code> for the largest index whose end <code>&lt;=</code> <code>jobs[i].start</code> (latest non-conflicting job).</li>
+      <li><code>take = jobs[i].profit + (idx == -1 ? 0 : dp[idx])</code>; <code>skip = (i == 0 ? 0 : dp[i-1])</code>; <code>dp[i] = max(skip, take)</code>.</li>
+      <li>Return <code>dp[n-1]</code> (0 for no jobs).</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n log n) — the sort dominates; each job does one O(log n) binary search</span> <span class="chip space">💾 Space O(n) — the jobs array plus parallel dp/ends arrays</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Sort by <em>end</em>, not start — that's what makes the compatible-prefix binary search valid, since <code>dp</code> is monotonic in end-sorted order. Compare ends with <code>&lt;=</code> the next start so jobs that abut at a boundary count as non-overlapping. The "take" branch reads <code>dp[idx]</code> (the best compatible prefix), not <code>dp[i-1]</code> — mixing them up double-books overlapping jobs.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "It's weighted interval scheduling: I can't just take the most jobs, I want the most profit. I sort by end time so 'best profit among jobs ending before I start' is a prefix I binary-search into. For each job dp is the max of skipping it or taking it plus the best compatible earlier prefix. Sort dominates, so O(n log n)."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/dp/MaximumProfitInJobScheduling.java" target="_blank" rel="noopener">📄 MaximumProfitInJobScheduling.java</a>
   </article>
 
   <div class="panel practice">
@@ -6936,7 +7678,7 @@ return dp[FULL];
 <section class="chapter" id="bitmath" data-title="Bit Manipulation &amp; Math / Sampling">
   <h2 class="chapter-title"><span class="emoji">🔢</span> Bit Manipulation &amp; Math / Sampling</h2>
   <p class="lede">A grab-bag of "do you actually understand the primitive" problems: two's-complement bit tricks, number theory (gcd, primes), fast exponentiation, the bitwise trie, and randomized sampling under streaming or weighted constraints. Individually short, but Google loves them as warm-ups and as the hidden subroutine inside a bigger system-design or data-structures question — and the sampling ones are really about <em>proving uniformity</em>, not writing code. High signal-per-minute, so know the reservoir-sampling and weighted-pick idioms cold at L6.</p>
-  <p class="source">Source: <em>Prep Tracker, Deep Research Adds &amp; curated Staff gaps</em> · <span class="count">8 problems</span></p>
+  <p class="source">Source: <em>Prep Tracker, Deep Research Adds &amp; curated Staff gaps</em> · <span class="count">9 problems</span></p>
 
   <div class="panel">
     <h3>🎯 Recognition signals</h3>
@@ -7027,6 +7769,11 @@ double pow(double x, long n) {
             <td><span class="pill diff-medium">Medium</span></td>
             <td><span class="badge b-sig">🟦 Google signature</span></td>
             <td>Prefix sums + binary search</td><td>O(log n)</td><td>O(n)</td></tr>
+        <tr><td>9</td><td>Add Binary</td>
+            <td><a class="lc" href="https://leetcode.com/problems/add-binary/" target="_blank" rel="noopener">LC 67 ↗</a></td>
+            <td><span class="pill diff-easy">Easy</span></td>
+            <td><span class="badge b-core">⚪ Core</span></td>
+            <td>Right-to-left carry</td><td>O(max(|a|,|b|))</td><td>O(max(|a|,|b|))</td></tr>
       </tbody>
     </table>
   </div>
@@ -7189,6 +7936,25 @@ double pow(double x, long n) {
     <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The <code>+1</code> on the target and the half-open interval convention must agree, or boundary indices get the wrong probability — sample in <code>[1, total]</code> and search for <code>&gt;= target</code>. Use a <em>lower-bound</em> search (<code>hi = mid</code>, not <code>mid-1</code>), since you want the first qualifying index. Prefix sums can overflow <code>int</code> if weights are large — widen if the constraints warrant.</div>
     <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "I turn weights into cumulative ranges: index i occupies a slice of the line whose length is its weight. I roll a uniform point in [1, total] and binary-search the first prefix sum that reaches it — that's the index, in log n per query after an O(n) build."</div>
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/bitmath/RandomPickWithWeight.java" target="_blank" rel="noopener">📄 RandomPickWithWeight.java</a>
+  </article>
+
+  <article class="problem" data-name="add binary" data-lc="67">
+    <h4 class="problem-h"><span class="num">9</span> Add Binary
+      <a class="lc" href="https://leetcode.com/problems/add-binary/" target="_blank" rel="noopener">LC 67 ↗</a>
+      <span class="pill diff-easy">Easy</span>
+      <span class="badge b-core">⚪ Core</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Given two binary strings <code>a</code> and <code>b</code>, return their sum as a binary string.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Schoolbook base-2 addition: walk both strings from the <em>right</em>, and at each column add the two bits plus the incoming carry. The result bit is <code>sum % 2</code> and the carry out is <code>sum / 2</code>. The only state crossing columns is that single carry, so one right-to-left pass suffices — append the low bit first and reverse once at the end.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Indices <code>i = |a| - 1</code>, <code>j = |b| - 1</code>, <code>carry = 0</code>; loop while <code>i &gt;= 0 || j &gt;= 0 || carry != 0</code>.</li>
+      <li><code>sum = carry</code>, then add <code>a.charAt(i--) - '0'</code> and <code>b.charAt(j--) - '0'</code> when each index is still in range.</li>
+      <li>Append <code>'0' + (sum &amp; 1)</code> as the emitted bit; set <code>carry = sum &gt;&gt; 1</code>. Reverse the buffer at the end since it was built low-to-high.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(max(|a|,|b|)) — one pass over the longer input</span> <span class="chip space">💾 Space O(max(|a|,|b|)) — the result buffer, one bit per column plus a possible carry</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Keeping <code>carry != 0</code> in the loop condition is what emits the final overflow bit (e.g. <code>"1" + "111" → "1000"</code>). Convert characters with <code>- '0'</code>, never parse the whole string to an integer — long inputs overflow even <code>long</code>, which is the whole reason it's a string problem. Don't forget the final <code>reverse()</code>; the buffer is built least-significant-first.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "I add the two binary strings exactly like long addition on paper: from the rightmost column leftward, summing the two bits and a carry, writing <code>sum % 2</code> and carrying <code>sum / 2</code>. The single carry is the only state I track. Keeping the carry in the loop condition handles unequal lengths and a leftover carry in one shot, and I reverse at the end because I built the answer low bit first."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/bitmath/AddBinary.java" target="_blank" rel="noopener">📄 AddBinary.java</a>
   </article>
 
   <div class="panel practice">
@@ -7611,7 +8377,7 @@ boolean remove(int v) {
 
 
     <div class="tofoot">
-      Built from the <a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/raw/main/google_l6_prep_tracker.xlsx">Google L6 Prep Tracker</a> · 211 solutions · <a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">source on GitHub</a><br>
+      Built from the <a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/raw/main/google_l6_prep_tracker.xlsx">Google L6 Prep Tracker</a> · 242 solutions · <a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">source on GitHub</a><br>
       Sources: <em>Prep Tracker</em>, <em>Deep Research Adds</em>, <em>Study Plan</em> &amp; <em>Progress</em> tabs.
     </div>
   </main>
