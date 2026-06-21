@@ -1,0 +1,394 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>A01 — Design YouTube / a video streaming service</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="index.html">&larr; All system-design questions</a><article class="doc"><h1>A01 — Design YouTube / a video streaming service</h1>
+<p>This tests whether you can take <strong>media to planet scale</strong>: ingest creator uploads, transcode each into a multi-bitrate ladder through a distributed pipeline, store petabytes durably, and deliver to <strong>billions of viewers</strong> at low rebuffer rates via a global CDN with adaptive bitrate streaming — while the metadata, view counts, and search stay fast and consistent enough. Google asks it because it forces every axis at once: heavy async compute (transcoding), exabyte storage economics, edge/CDN delivery, hot-key handling (a viral video), and an explicit consistency model for counts and metadata — the breadth-with-depth that separates Staff from L5.</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>Read/write asymmetry:</strong> This is the defining fact — are we optimizing for the <strong>~1 upload : ~thousands-of-views</strong> ratio? I'll assume the system is overwhelmingly read-heavy and design delivery first, ingest second.</li>
+<li><strong>Functional scope:</strong> Upload + transcode + playback is the core. Are <strong>comments, channels/subscriptions, live streaming, Shorts, monetization/ads, and recommendations</strong> in scope, or can I name them and defer? I'll propose deferring recommendations and live to keep the 60 min focused on the media plane.</li>
+<li><strong>Scale:</strong> Daily active viewers, hours uploaded per minute, average video length and views-per-video distribution (it's heavy-tailed — a few videos get billions of views). I'll assume <strong>~2B MAU, ~500 hours uploaded/min, ~1B watch-hours/day</strong>.</li>
+<li><strong>Latency / quality targets:</strong> What's the bar — <strong>startup time (time-to-first-frame) &lt; ~1–2 s</strong>, <strong>rebuffer ratio &lt; ~0.5%</strong>, and "720p ready within minutes of upload"? Playback quality (rebuffering) is the metric users feel.</li>
+<li><strong>Consistency needs:</strong> Must <strong>view counts</strong> be exact and real-time, or is "eventually accurate, monotonic, slightly delayed" fine (it is — and that unlocks huge throughput)? Must a newly uploaded video be <strong>instantly</strong> searchable/visible, or is seconds-to-minutes acceptable?</li>
+<li><strong>Geographic distribution + device mix:</strong> Global audience -&gt; multi-region + CDN mandatory. Device range from low-end mobile on 3G to 4K TVs -&gt; <strong>adaptive bitrate</strong> is non-negotiable, not a nice-to-have.</li>
+<li><strong>Durability + cost:</strong> Source masters must never be lost (everything is recomputable from them); but storing every rendition of every video forever is an exabyte cost problem — is <strong>tiered/cold storage and re-transcode-on-demand for the long tail</strong> acceptable?</li>
+<li><strong>DRM / content policy:</strong> Do we need DRM, age-gating, copyright (Content ID) matching? I'll flag these as real but adjacent and defer the internals.</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> they want to see you <strong>split the problem into an async upload/transcode pipeline and a read-optimized delivery path</strong>, and treat them with different consistency and scaling models. The highest-signal moves: declaring early that <strong>playback is served from CDN edges, not origin</strong>; that <strong>view counts are eventually-consistent on purpose</strong>; and that <strong>transcoding is an embarrassingly-parallel queue+worker pipeline</strong>. The deep dives will be the <strong>transcoding pipeline</strong> and <strong>CDN + adaptive bitrate delivery</strong>.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In-scope</strong></p>
+<ul>
+<li><strong>Upload</strong> a video (large files, resumable/chunked) and durably persist the <strong>source master</strong>.</li>
+<li><strong>Transcode</strong> each upload into a <strong>multi-bitrate ABR ladder</strong> (e.g. 144p–4K, H.264 + AV1) packaged as <strong>HLS/DASH</strong> segments + manifest, plus thumbnails.</li>
+<li><strong>Store</strong> masters and renditions in object storage; serve renditions via <strong>CDN with edge caching</strong>.</li>
+<li><strong>Playback</strong> with <strong>adaptive bitrate streaming</strong> — the player picks a rendition per segment based on measured bandwidth/buffer.</li>
+<li><strong>Metadata</strong>: title, description, channel, duration, tags; create/read/update; list a channel's videos.</li>
+<li><strong>View counts</strong> and basic engagement (likes), eventually-consistent but monotonic and not easily gamed.</li>
+<li><strong>Search by metadata</strong> (title/keywords) — basic; full ranking deferred.</li>
+</ul>
+<p><strong>Out-of-scope (defer)</strong></p>
+<ul>
+<li><strong>Recommendations / home-feed ranking</strong> (huge ML system — name it, defer).</li>
+<li><strong>Live streaming</strong> (sub-second/low-latency path is a different architecture — call out the difference).</li>
+<li><strong>Comments, subscriptions, notifications, monetization/ads</strong> (adjacent CRUD + fan-out problems).</li>
+<li><strong>DRM, Content ID / copyright matching, moderation ML</strong> — acknowledge as required in production, defer internals.</li>
+</ul>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>~2B MAU; ~500 hrs uploaded/min; ~1B watch-hours/day. Read-dominated: <strong>views &gt;&gt; uploads by ~3–4 orders of magnitude</strong>.</td>
+</tr>
+<tr>
+<td>Latency</td>
+<td><strong>Time-to-first-frame &lt; 1–2 s</strong> (served from nearby CDN edge); <strong>rebuffer ratio &lt; 0.5%</strong>; metadata reads p99 &lt; 100 ms.</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td><strong>99.95%+</strong> for playback + metadata read (degraded-but-watchable beats down); upload can be slightly lower (async, retriable).</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td><strong>Metadata read-your-writes within seconds</strong>; <strong>view counts eventually-consistent + monotonic</strong> (approximate is acceptable, exact is not worth the cost).</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td><strong>11 nines</strong> for source masters (erasure-coded, geo-replicated) — masters are the source of truth; renditions are recomputable.</td>
+</tr>
+<tr>
+<td>Throughput (delivery)</td>
+<td>Tens of <strong>Tbps</strong> egress globally at peak; the CDN absorbs the vast majority so origin sees a tiny fraction.</td>
+</tr>
+<tr>
+<td>Cost</td>
+<td>First-class: exabyte storage + Tbps egress dominate. Lever via <strong>CDN offload, tiered storage, per-title encoding, cold long-tail</strong>.</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>Signed playback URLs, optional DRM, abuse/bot protection on counts and upload.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>UPLOAD / INGEST
+  Upload rate:    500 hours/min uploaded
+                  = 500*60 = 30,000 video-seconds per real second
+  Say avg video = 10 min =&gt; uploads/min = 500/ (10/60)? -&gt; 500 hrs / 10min = 3000 videos/min = 50 videos/s
+  Master bitrate ~10 Mbps (1080p source) -&gt; 10 min * 10 Mbps = ~750 MB/master
+  Ingest bytes/day:  ~3000 videos/min * 60 *24 * 750 MB = ~3.2e6 videos/day * 750MB
+                     = ~2.4 PB/day of MASTERS ingested
+
+STORAGE
+  ABR ladder ~5-6 renditions, total ~1.5x master after compression mix
+                     ~1.1 GB outputs/video
+  Per day (masters + outputs): ~2.4 PB + ~3.5 PB = ~6 PB/day
+  Per year: ~2 EB/year added  (=&gt; tiered storage + cold long-tail is mandatory)
+
+DELIVERY (the dominant axis)
+  Watch-hours/day ~1e9.  Avg playback bitrate (mixed devices) ~3 Mbps.
+  Egress/day = 1e9 hrs * 3600 s * 3 Mbps / 8 = ~1.35e9 * 3600 * 0.375 MB
+             ~ 1.8 EB/day delivered  (!!)
+  =&gt; Average egress ~ (1.8e18 bytes/day) ~ 167 Tbps average, multiples at peak.
+  CDN MUST absorb ~95-99% of this; origin serves only cache-fill + cold tail.
+
+CACHE / CDN
+  Popularity is heavy-tailed: ~the top ~5-10% of videos drive the large majority of views.
+  Cache the hot set at edge: if hot working set ~ a few PB, distribute across
+  many edge POPs; each POP caches its region's hot set in SSD/RAM tiers.
+
+VIEW COUNTS
+  Views/day ~ tens of billions of view-events.
+  ~ 1e10 / 86400 ~ 1.2e5 view-events/s avg, multiples at peak.
+  =&gt; cannot hit a single counter row; must shard + aggregate (see deep dive).
+
+METADATA QPS
+  Each watch =&gt; ~1 metadata read + several segment requests.
+  Metadata reads ~ 1e5-1e6 QPS -&gt; KV with heavy cache; writes (uploads) ~tens/s only.
+</code></pre>
+<p>The decisive numbers: <strong>delivery egress (~hundreds of Tbps) dwarfs everything</strong>, so the entire design is "push bytes to the edge and serve almost nothing from origin." Storage grows at <strong>~exabytes/year</strong>, forcing tiered/cold storage and per-title encoding. View-events at <strong>~10^5/s</strong> can't touch a single row, forcing sharded counters.</p>
+<h2>5) API design</h2>
+<pre><code># Upload (resumable, bytes bypass app servers)
+POST /videos                        -&gt; {videoId, uploadId, multipartUrls[]}   # presigned
+PUT  &lt;presigned-part-url&gt;           (client uploads chunks directly to blob store)
+POST /videos/{id}/complete  {parts[]} -&gt; {status: PROCESSING}                 # finalize master, enqueue transcode
+
+# Metadata
+PATCH /videos/{id}        {title, description, tags, visibility}
+GET   /videos/{id}        -&gt; {meta, status, availableRenditions[], manifestUrl}
+GET   /channels/{id}/videos?cursor=...  -&gt; {videos[], nextCursor}
+
+# Playback (manifest from API/edge, segments from CDN)
+GET  /videos/{id}/manifest.mpd      -&gt; DASH manifest (or .m3u8 HLS)  [signed]
+GET  &lt;cdn&gt;/{id}/{rendition}/seg_{n}.m4s  -&gt; media segment            [signed, cacheable]
+
+# Engagement
+POST /videos/{id}/view              {sessionId, position}   -&gt; 204   # fire-and-forget, deduped
+POST /videos/{id}/like              -&gt; 204
+
+# Search (basic)
+GET  /search?q=...&amp;cursor=...       -&gt; {results[], nextCursor}
+</code></pre>
+<p>Two design tells in the API: <strong>upload bytes go directly to blob storage via presigned URLs</strong> (never through app servers), and <strong>segments are static, signed, cacheable CDN URLs</strong> while only the small manifest touches our edge logic. View is <strong>fire-and-forget + deduped</strong>, not a synchronous increment.</p>
+<h2>6) Architecture — request &amp; data flow</h2>
+<p>THE centerpiece. ASCII layered flow first, then a tailored Mermaid flowchart.</p>
+<h3>(a) ASCII layered block diagram</h3>
+<pre><code>        Creators (upload)                                 Viewers (playback, billions)
+              |                                                   |
+              |  presigned chunks (bytes bypass app)              |  HTTP range / segment GETs
+              v                                                   v
+      [ Upload Edge / Accel ]                            [ CDN Edge POPs ]  &lt;- 95-99% of egress
+              |                                            |   (SSD/RAM tiers, signed URLs)
+              v                                            |  miss (cache-fill only)
+      [ Global LB / GeoDNS (anycast) ] &lt;------------------+----------------+
+              |                                            ^                |
+              v                                            | manifest       |
+      [ API Gateway ]  authN/Z, rate-limit, signing        | (small)        |
+        /        |          \                              |                |
+       v         v           v                             |                |
+ [ Upload Svc ][ Metadata Svc ][ Playback Svc ]------------+                |
+   finalize      CRUD + read    issues manifest + signed URLs               |
+   master        |   ^             |                                        |
+       |         |   | cache       |  reads rendition list                  |
+  put  v         v   |             v                                        |
+ [ Object Store: MASTERS ]   [ Metadata DB ]   [ Rendition Index ]          |
+  (immutable, 11 nines)       (sharded KV/SQL)  (which renditions exist)    |
+       |                          ^                                         |
+       | enqueue transcode        | view-count rollups (async)             |
+       v                          |                                        |
+ [ Transcode Job Queue ] (durable, lease+heartbeat, priority)              |
+       |  lease                   |                                        |
+       v                          |                                        |
+ [ Transcode Worker Pool ] (autoscaled, spot, GPU/CPU)                     |
+   PROBE -&gt; SPLIT into segments -&gt; ENCODE ladder (FFmpeg) -&gt;               |
+   PACKAGE HLS/DASH -&gt; THUMBS                                              |
+       |  write outputs (idempotent, deterministic keys)                  |
+       v                                                                  |
+ [ Object Store: RENDITIONS + manifests ] ----origin pull / pre-warm------+
+       |
+       | completion event                  VIEW PATH (async):
+       v                          view event -&gt; [ Ingest/Kafka ] -&gt; [ Stream aggregator ]
+ [ Completion / Publish ] -&gt;                    -&gt; sharded counters -&gt; periodic rollup -&gt; Metadata
+   flip status=READY, index for search                       (eventually consistent, monotonic)
+       |
+       v
+ [ Search Index (inverted, by metadata) ]
+</code></pre>
+<p><strong>Write / upload path.</strong> A creator calls Upload Svc, gets <strong>presigned multipart URLs</strong>, and uploads chunks <strong>directly to object storage</strong> (bytes never transit our services — critical at PB/day). On <code>complete</code>, Upload Svc finalizes the <strong>master</strong>, writes a metadata row with <code>status=PROCESSING</code>, and enqueues a job on the <strong>durable transcode queue</strong>. A worker leases the job, <strong>probes</strong> it, <strong>splits</strong> the source into segments, <strong>fans those segment-encode tasks back onto the queue</strong> so the pool encodes one video's chunks in parallel, runs <strong>FFmpeg</strong> per rendition, <strong>packages</strong> HLS/DASH, writes outputs to object storage at <strong>deterministic idempotent keys</strong>, and emits a completion event. The <strong>Publish</strong> step flips <code>status=READY</code>, registers available renditions in the <strong>Rendition Index</strong>, and indexes metadata into the <strong>Search Index</strong>. Now the video is watchable.</p>
+<p><strong>Read / playback path.</strong> A viewer's request resolves via <strong>anycast GeoDNS</strong> to the nearest POP. The player fetches a small <strong>manifest</strong> (from Playback Svc / edge), which lists rendition + segment URLs. Then it streams <strong>media segments as static, signed, cacheable GETs from the CDN edge</strong> — <strong>95–99% are cache hits</strong>, served from edge SSD/RAM; only cold/long-tail misses pull from origin object storage (and we pre-warm hot content). The <strong>player runs adaptive bitrate</strong>: it measures throughput + buffer occupancy and picks the next segment's rendition (steps down on congestion to avoid rebuffer, up when headroom exists). Metadata (title, etc.) is a cached KV read.</p>
+<p><strong>View-count path (deliberately async).</strong> Each play emits a <strong>fire-and-forget view event</strong> to a stream (Kafka). A <strong>stream aggregator</strong> dedupes (by session) and increments <strong>sharded counters</strong>; a periodic <strong>rollup</strong> sums shards into the displayed count in metadata. The count is <strong>eventually consistent and monotonic</strong> — never blocks playback, never hits a single hot row.</p>
+<h3>(b) Mermaid flowchart</h3>
+<div class="mermaid">
+flowchart TD
+  creator[Creators upload] --> uacc[Upload Edge / Accel]
+  uacc -->|presigned chunks| master[(Object Store - MASTERS, 11 nines)]
+  creator --> gw
+
+  viewer[Viewers playback] --> cdn[CDN Edge POPs - 95-99% egress]
+  cdn -->|cache miss / pre-warm| rend[(Object Store - RENDITIONS + manifests)]
+  cdn --> lb[Global LB / GeoDNS anycast]
+  lb --> gw[API Gateway authN/Z + signing]
+
+  gw --> up[Upload Svc]
+  gw --> meta[Metadata Svc]
+  gw --> play[Playback Svc - manifest + signed URLs]
+
+  up --> master
+  up --> mdb[(Metadata DB - sharded)]
+  up -->|enqueue| q[[Transcode Job Queue - lease+priority]]
+  meta --> mdb
+  play --> ridx[(Rendition Index)]
+  play --> cdn
+
+  q -->|lease| pool[Transcode Workers - autoscaled, spot, GPU/CPU]
+  pool -->|split: segment tasks| q
+  pool -->|FFmpeg encode ladder + package| rend
+  pool -->|done| pub[Completion / Publish -> READY]
+  pub --> ridx
+  pub --> sidx[(Search Index - inverted)]
+
+  viewer -.->|fire-and-forget view| vq[[View Events / Kafka]]
+  vq --> agg[Stream Aggregator - dedupe]
+  agg --> shards[(Sharded Counters)]
+  shards -->|periodic rollup| mdb
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<p><strong>Object storage (erasure-coded blob) — the bulk plane.</strong> Two namespaces: <strong>masters</strong> (immutable, 11 nines, the recomputable source of truth) and <strong>renditions + manifests</strong> (segments at deterministic keys <code>…/{videoId}/{rendition}/seg_{n}.m4s</code>). <em>First-principles:</em> video bytes are large, immutable-after-write, sequentially read in ranges, and need cheap-per-GB durable storage — exactly what an erasure-coded object store is for; a database would be the wrong tool. Tier renditions: hot in fast storage near CDNs, <strong>long-tail in cold storage</strong> (re-transcode or re-warm on demand).</p>
+<p><strong>Metadata DB — sharded KV (or sharded relational), partitioned by <code>videoId</code>.</strong> Stores <code>{videoId, channelId, title, description, tags, duration, status, visibility, createdAt, viewCount}</code>. <em>Why:</em> point reads by id at <strong>10^5–10^6 QPS</strong> with <strong>read-your-writes within seconds</strong> — a horizontally partitioned KV with heavy caching fits; relational is fine too since write volume (uploads) is tiny. Reads are cache-first; the long tail of cold metadata falls through to the store.</p>
+<p><strong>Rendition Index — small KV</strong> mapping <code>videoId -&gt; {available renditions, manifest pointer, packaging}</code>. Read on every playback start; tiny and highly cacheable. Kept separate so "what can I play" is independent of bulky metadata and of transcode internals.</p>
+<p><strong>View counters — sharded counters + stream aggregation, NOT a row you increment.</strong> Write path is a stream; counts live as <strong>N shard-counters per video</strong> summed by rollup. <em>First-principles:</em> a single counter row for a viral video is a textbook <strong>hot key</strong> (10^5 writes/s to one row) — sharding the counter and accepting eventual+monotonic consistency trades exactness (which nobody needs to the unit) for throughput.</p>
+<p><strong>Search Index — inverted index over metadata</strong> (title/description/tags -&gt; postings of videoIds), updated at publish. Basic keyword retrieval; full ranking/recs deferred. Separate store because text retrieval wants an inverted index, not a KV.</p>
+<p><strong>Transcode Job + Segment state — strongly-consistent transactional store</strong> (small): one row per job + per segment task, with CAS state transitions (<code>PROCESSING -&gt; READY</code> only when all segment outputs exist). Coordination data, not bulk data.</p>
+<h2>8) Deep dive</h2>
+<p>The two cruxes are <strong>(A) the transcoding pipeline</strong> (turning one upload into a watchable ABR ladder, correctly, cheaply, in parallel) and <strong>(B) CDN + adaptive bitrate delivery</strong> (serving hundreds of Tbps at &lt;0.5% rebuffer). Spend the most time here.</p>
+<p><strong>A. Transcoding pipeline (async, parallel, idempotent).</strong></p>
+<ul>
+<li><strong>Why a queue + worker pool, not synchronous:</strong> encoding a 10-min video is minutes of CPU; blocking the upload request is a non-starter. The <strong>durable priority queue</strong> is also the shock absorber for bursty uploads (everyone uploads at peak hours) and the substrate for crash-safe <strong>at-least-once + lease</strong> redelivery.</li>
+<li><strong>Segment-first parallelism (the key move):</strong> the first worker <strong>probes</strong> then <strong>splits</strong> the source into ~2–6 s segments and <strong>fans segment-encode tasks back onto the queue</strong>. Now one video is encoded <strong>across the whole pool in parallel</strong> — wall-clock drops from ~50 core-minutes serial to a few minutes — and a crash loses <em>seconds</em> of redo, not the whole encode.</li>
+<li><strong>The ABR ladder:</strong> each segment is encoded into multiple <strong>renditions</strong> (144p…4K) and <strong>codecs</strong> (H.264 for compatibility, <strong>AV1/VP9</strong> for bitrate savings on hot content), then <strong>packaged</strong> into HLS/DASH with a manifest. <strong>Per-title / content-aware encoding</strong> analyzes scene complexity so a simple talking-head video doesn't burn bits at 4K — big compute <em>and</em> storage savings at our scale.</li>
+<li><strong>Exactly-once <em>effect</em> under at-least-once delivery:</strong> segment outputs are written at <strong>deterministic keys</strong> derived from <code>(videoId, segmentIdx, rendition)</code>, so a redelivered task <strong>overwrites identical bytes</strong> — no duplicates. Completion = "all expected output keys exist," verified with a <strong>CAS</strong> on job state; a <strong>fencing/attempt token</strong> stops a zombie worker (woke after lease expiry) from clobbering. After the manifest is durably written, flip <code>READY</code> and emit completion.</li>
+<li><strong>Cost levers:</strong> <strong>spot/preemptible</strong> workers (reclamation is just another lease expiry — perfect fit), <strong>GPU encode</strong> for heavy codecs, <strong>autoscale on queue depth/age</strong> (not CPU), <strong>first-playable fast lane</strong> (encode 720p before the full ladder so the video is watchable in minutes).</li>
+</ul>
+<p><strong>B. CDN + adaptive bitrate delivery (the read plane that dominates everything).</strong></p>
+<ul>
+<li><strong>Hierarchical caching:</strong> edge POPs (closest to users) -&gt; regional mid-tier caches -&gt; origin object storage. The popularity curve is heavy-tailed, so a <strong>small hot working set serves most views</strong>; we keep it in edge <strong>SSD/RAM tiers</strong> and <strong>pre-warm</strong> new-but-likely-hot uploads. Origin only sees <strong>cache-fill + cold tail</strong> — that's how ~Tbps becomes a manageable origin load.</li>
+<li><strong>Why segments + manifest (not one file):</strong> chunking the video into independent, individually-cacheable segments is what makes both <strong>edge caching</strong> and <strong>adaptive switching</strong> possible — each segment is a static, signed, immutable URL with a long TTL.</li>
+<li><strong>Adaptive Bitrate (ABR) on the client:</strong> the player picks each next segment's rendition from <strong>measured throughput and buffer occupancy</strong> (e.g. a buffer-based / hybrid rule). It <strong>steps down</strong> when the network degrades (protect against rebuffer — the metric users feel) and <strong>steps up</strong> when there's headroom. Startup uses a low rendition for <strong>fast time-to-first-frame</strong>, then ramps. This is why we transcode a <em>ladder</em>: the client needs choices per segment.</li>
+<li><strong>Cache efficiency + correctness:</strong> consistent-hash segment keys across edge servers to spread load and dedupe fills; <strong>request coalescing</strong> at the edge so a thundering herd on a just-viral video triggers <strong>one</strong> origin fill, not millions; signed URLs + token TTLs for access control without per-request origin calls.</li>
+<li><strong>Multi-region origin:</strong> renditions geo-replicated so each region's CDN fills from a nearby origin; viewers always hit the nearest edge via anycast.</li>
+</ul>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Choice &amp; why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Upload vs delivery</td>
+<td><strong>Two separate planes</strong> — async upload/transcode (write-rare, compute-heavy) vs read-optimized delivery (read-billions). Different consistency, scaling, cost models.</td>
+</tr>
+<tr>
+<td>Sync vs async transcode</td>
+<td><strong>Async pipeline</strong> behind a durable queue — encoding is minutes-long; queue absorbs upload bursts and gives crash-safe redelivery.</td>
+</tr>
+<tr>
+<td>Delivery semantics</td>
+<td><strong>Static, immutable, signed segment URLs from CDN</strong> — 95–99% cache hit; origin serves only fill + cold tail. The single biggest scale lever.</td>
+</tr>
+<tr>
+<td>ABR location</td>
+<td><strong>Client-side adaptive bitrate</strong> — the client has ground truth (its own buffer + throughput); server-side can't react per-segment as well.</td>
+</tr>
+<tr>
+<td>Encode unit</td>
+<td><strong>Segment-level</strong> over whole-file — parallelizes one video across the pool, smaller crash blast radius; cost is a stitch/package step.</td>
+</tr>
+<tr>
+<td>View-count consistency</td>
+<td><strong>Eventually consistent + monotonic, sharded counters</strong> — exact real-time counts on a viral video = hot-key death; nobody needs unit-exactness.</td>
+</tr>
+<tr>
+<td>Metadata store</td>
+<td><strong>Sharded KV + heavy cache</strong>, read-your-writes in seconds — point reads at 10^5–10^6 QPS; writes are rare.</td>
+</tr>
+<tr>
+<td>Storage tiering</td>
+<td><strong>Hot near CDN, long-tail cold</strong> (+ per-title encoding) — exabyte/yr growth makes "store every rendition hot forever" economically impossible.</td>
+</tr>
+<tr>
+<td>Worker instances</td>
+<td><strong>Spot/preemptible + GPU</strong> — pipeline tolerates worker loss already; large cost win.</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Viral video (signature hot key):</strong> one video gets billions of views. <em>Mitigation:</em> CDN edge caching makes it a non-event for delivery; <strong>request coalescing</strong> so one origin fill serves the herd; <strong>sharded view counters</strong> so the count write doesn't hit one row.</li>
+<li><strong>Thundering herd on cache miss (new viral upload):</strong> many edges + clients miss simultaneously. <em>Mitigation:</em> request coalescing / single-flight at each cache tier; <strong>pre-warm</strong> likely-hot content at publish.</li>
+<li><strong>Transcode worker crash mid-encode:</strong> <em>Mitigation:</em> lease expiry + redelivery + <strong>idempotent segment writes at deterministic keys</strong> -&gt; only seconds of redo, exactly-once output; fencing tokens stop zombies.</li>
+<li><strong>Upload spike (everyone uploads at peak):</strong> <em>Mitigation:</em> the <strong>queue absorbs it</strong> (backpressure); autoscale workers on queue depth; bytes go straight to blob (Upload Svc only enqueues, stays available); per-creator concurrency caps.</li>
+<li><strong>Poison input (corrupt/unsupported media):</strong> retry loop. <em>Mitigation:</em> validate at probe, bounded retries + backoff -&gt; <strong>dead-letter</strong> + alert; master retained so reprocessing is always possible.</li>
+<li><strong>Origin / object-store throttling under burst fills:</strong> <em>Mitigation:</em> key-prefix sharding, multi-region origin, mid-tier caches to collapse fills.</li>
+<li><strong>Metadata hot partition (a mega-channel):</strong> <em>Mitigation:</em> shard by videoId not channelId; cache channel listings; paginate.</li>
+<li><strong>Cost blowout (egress + storage):</strong> <em>Mitigation:</em> maximize CDN offload, per-title encoding, cold-tier the long tail, AV1 for hot content.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>First thing that breaks: delivery egress + CDN economics</strong> at 10× views. <em>Evolve:</em> push deeper edge presence / ISP-embedded caches (bring bytes even closer), aggressive <strong>AV1/per-title encoding</strong> to cut bytes-per-view, smarter pre-warming from popularity prediction.</li>
+<li><strong>Storage growth (~exabytes/yr -&gt; 10×).</strong> <em>Evolve:</em> don't store every rendition forever — keep masters + popular renditions; <strong>re-transcode cold long-tail on demand</strong>; tier hard to cold/archival; dedupe identical re-uploads (content hashing).</li>
+<li><strong>Transcode compute + cost.</strong> <em>Evolve:</em> more GPU/hardware encode, content-aware bit allocation, regional pipelines near upload origin, predictive autoscaling off the daily upload curve.</li>
+<li><strong>View-event firehose (10× -&gt; ~10^6/s).</strong> <em>Evolve:</em> more counter shards, hierarchical pre-aggregation in the stream, regional rollups merged centrally.</li>
+<li><strong>Multi-region everything:</strong> pipelines + origins per region, async master replication, search index replicated; viewers always nearest edge.</li>
+<li><strong>New surfaces (Shorts/live):</strong> live needs a <strong>low-latency path</strong> (chunked-transfer/LL-HLS, smaller segments, edge transcode) — a separate pipeline reusing the same storage/CDN substrate.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"A video goes viral — billions of views in a day. What happens?"</strong> Delivery is fine: it's served from CDN edges (hot set caches instantly), with <strong>request coalescing</strong> so origin sees ~one fill. The <strong>view count</strong> uses sharded counters + stream aggregation, so the write doesn't hit a single hot row; the displayed count is eventually consistent + monotonic.</li>
+<li><strong>"Why adaptive bitrate, and where does the decision live?"</strong> Devices/networks vary enormously; we transcode a <strong>ladder</strong> so the <strong>client</strong> can pick each segment's rendition from its own measured throughput + buffer — stepping down to avoid rebuffer, up when there's headroom. The client has the ground truth, so the decision lives there.</li>
+<li><strong>"How is transcoding crash-safe and not duplicating output?"</strong> At-least-once queue + <strong>idempotent writes at deterministic keys</strong> + completion = "all output keys exist" + CAS on final state. A redelivered segment overwrites identical bytes; fencing tokens stop zombie workers.</li>
+<li><strong>"How fast is a video watchable after upload, and how do you speed it up?"</strong> Minutes, via <strong>segment-level parallelism</strong> (one video across the whole pool) and a <strong>first-playable fast lane</strong> that encodes 720p before the full ladder.</li>
+<li><strong>"How don't you fall over when everyone uploads at peak?"</strong> Bytes go straight to blob via presigned URLs; Upload Svc only enqueues so it stays up; the <strong>durable queue absorbs the spike</strong> (backpressure); workers autoscale on queue depth; per-creator caps keep it fair.</li>
+<li><strong>"Do you store every rendition forever?"</strong> No — masters always (recomputable source), popular renditions hot, and the <strong>cold long tail is tiered/archived or re-transcoded on demand</strong>. At exabyte/yr, this is mandatory.</li>
+<li><strong>"Strong or eventual consistency for view counts, and why is that OK?"</strong> Eventual + monotonic. Exact real-time counts on a viral video is a hot-key throughput killer, and no product requirement needs unit-exact counts — approximate-but-monotonic is the right trade.</li>
+<li><strong>"How do you keep newly uploaded videos searchable quickly?"</strong> Publish step indexes metadata into the inverted index at <code>READY</code>; visibility within seconds. Full ranking/recs are a separate deferred system.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–3 min</td>
+<td>Frame the problem: <strong>read-dominated</strong> (views &gt;&gt; uploads), split into <strong>async upload/transcode</strong> and <strong>read-optimized delivery</strong> planes. State that early.</td>
+</tr>
+<tr>
+<td>3–9 min</td>
+<td><strong>Clarify:</strong> scope (defer recs/live/ads), scale (MAU, hrs/min, watch-hrs), latency (TTFF, rebuffer), consistency (counts eventual? metadata read-your-writes?), durability, cost.</td>
+</tr>
+<tr>
+<td>9–14 min</td>
+<td><strong>FR + NFR + estimation:</strong> surface the two big numbers — <strong>delivery egress ~hundreds of Tbps</strong> (CDN must absorb ~all) and <strong>~exabytes/yr storage</strong> (tiering + per-title encoding).</td>
+</tr>
+<tr>
+<td>14–20 min</td>
+<td><strong>API + high-level architecture:</strong> draw the ASCII flow — presigned upload (bytes bypass app), transcode queue+workers, object store, CDN delivery, async view counts.</td>
+</tr>
+<tr>
+<td>20–24 min</td>
+<td>Walk the <strong>upload/transcode path</strong> and the <strong>playback path</strong> (manifest + signed CDN segments + client ABR), and the <strong>view-count path</strong> (async).</td>
+</tr>
+<tr>
+<td>24–44 min</td>
+<td><strong>Deep dive (the crux):</strong> (A) transcoding — segment-first parallelism, ABR ladder, per-title encoding, idempotent exactly-once-effect, spot/GPU; (B) CDN + adaptive bitrate — hierarchical cache, coalescing, client ABR, pre-warm. Most time here.</td>
+</tr>
+<tr>
+<td>44–50 min</td>
+<td><strong>Consistency + counts + metadata:</strong> sharded counters, eventual+monotonic, read-your-writes metadata; why exact counts aren't worth it.</td>
+</tr>
+<tr>
+<td>50–55 min</td>
+<td><strong>Tradeoffs + bottlenecks:</strong> viral hot key, thundering herd, poison input -&gt; dead-letter, storage/egress cost.</td>
+</tr>
+<tr>
+<td>55–60 min</td>
+<td><strong>10× evolution + wrap:</strong> deeper edge caches, AV1/per-title, re-transcode cold tail, predictive autoscale. Restate the big idea: <strong>two planes — absorb writes in a parallel idempotent pipeline, serve reads almost entirely from the edge, and make counts eventually-consistent on purpose.</strong></td>
+</tr>
+</tbody>
+</table></article></div></body></html>

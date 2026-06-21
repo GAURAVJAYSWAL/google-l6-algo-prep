@@ -1,0 +1,417 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>A16 — Design a ticket booking system</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="index.html">&larr; All system-design questions</a><article class="doc"><h1>A16 — Design a ticket booking system</h1>
+<p>A ticket booking system (movies, flights, concerts, trains) sells a <strong>finite inventory of specific seats</strong> to many concurrent buyers, and its defining requirement is brutally simple to state and hard to satisfy: <strong>no double-booking</strong> — one seat, one buyer, ever — while still feeling fast and available under a flash crowd. The crux is <strong>concurrency and consistency under contention</strong>: thousands of people stampede the same popular event the instant tickets drop, and the system must serialize the claim on each seat without melting. Google asks this because it forces a precise stance on <strong>locking (optimistic vs pessimistic), reservation holds with TTL, idempotent payments, oversell prevention, and the exact consistency model</strong> — strong-consistency systems design, not eventual-consistency hand-waving.</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>Assigned seats or general admission?</strong> Pick-your-seat (seat-map, per-seat state) vs a pool of N identical GA tickets (decrement a counter). The data model and locking differ — seat-map is the harder, more interesting case; I'll design for it and note the GA simplification.</li>
+<li><strong>Single venue/event or marketplace?</strong> One booking engine per event vs a platform across many events/venues. Affects partitioning (partition by event is natural) and the inventory store.</li>
+<li><strong>What's the consistency requirement, exactly?</strong> I'll assume <strong>strong consistency on inventory — never sell the same seat twice, never oversell</strong> — even at the cost of some availability/latency under partition. This is a CP problem by nature.</li>
+<li><strong>Flash-crowd scale?</strong> A hot concert: maybe <strong>10^5–10^6 users</strong> hit the on-sale at t=0 for <strong>~10^4–10^5 seats</strong>. Steady state is tiny; the spike is the whole problem. Read (browse seat-map) vastly outnumbers write (book).</li>
+<li><strong>Hold/reservation semantics?</strong> When a user selects seats, do we <strong>hold</strong> them while they pay? For how long (TTL, e.g. 5–10 min)? What happens on timeout — auto-release? This is central.</li>
+<li><strong>Payment flow and failure handling?</strong> Synchronous card auth in the hold window, or async? Must be <strong>idempotent</strong> (retries/double-clicks/webhook redelivery must not double-charge or double-book).</li>
+<li><strong>Latency target?</strong> Browsing seat-map <strong>p99 &lt; 200 ms</strong>; the <strong>book/confirm</strong> action can be a bit slower (it's a transaction) but should feel responsive (&lt; 1 s).</li>
+<li><strong>Oversell tolerance?</strong> Usually <strong>zero</strong> for seat selection. (Airlines deliberately oversell GA-style cabins — a different policy; confirm whether overbooking is wanted.)</li>
+<li><strong>Fairness under contention?</strong> First-come-first-served, or a <strong>virtual waiting room / queue</strong> that admits users in order to protect the backend? For flash sales the waiting room is often the real answer.</li>
+<li><strong>Refunds/cancellations and resale?</strong> In scope or deferred?</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> they want to see that you treat this as a <strong>strong-consistency, high-contention transactional</strong> problem — the opposite of the "eventually consistent at scale" reflex. The differentiators: (1) a crisp <strong>hold-with-TTL</strong> model so a user can pay without others grabbing the seat, <em>and</em> the seat isn't lost forever if they abandon; (2) the <strong>optimistic-vs-pessimistic locking</strong> call with a clear justification; (3) <strong>idempotent payments</strong> keyed so retries are safe; (4) <strong>partitioning by event</strong> so one hot event doesn't take down others, and handling that hot partition. Jumping to "just put it in a database" without addressing the hold lifecycle, idempotency, and the flash-crowd hot partition is an L5 answer.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In scope</strong></p>
+<ul>
+<li>Browse events and view a <strong>live seat-map</strong> (which seats are available/held/sold).</li>
+<li><strong>Hold</strong> selected seats for a TTL while the user checks out (others can't grab them).</li>
+<li><strong>Book/confirm</strong>: take payment and convert a hold into a confirmed sale — <strong>idempotently</strong>, with <strong>no double-booking and no oversell</strong>.</li>
+<li><strong>Auto-release</strong> held seats whose TTL expires (returned to inventory).</li>
+<li>Handle the <strong>flash crowd / on-sale spike</strong> (admission control / waiting room).</li>
+<li>View bookings; cancel/refund (basic) returning seats to inventory.</li>
+</ul>
+<p><strong>Out of scope (defer)</strong></p>
+<ul>
+<li>Dynamic pricing / surge pricing engine.</li>
+<li>Secondary marketplace / resale and anti-scalping ML (flag it; bot/fraud is a real adjacent concern).</li>
+<li>Recommendations, seating-preference optimization.</li>
+<li>Full ledger/accounting and tax (a payments/finance service owns this).</li>
+</ul>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>Steady tiny; <strong>on-sale spike 10^5–10^6 concurrent users</strong> for ~10^4–10^5 seats per hot event. Reads &gt;&gt; writes.</td>
+</tr>
+<tr>
+<td>Seat-map read</td>
+<td><strong>p99 &lt; 200 ms</strong> — browse is the high-volume path; cache aggressively, tolerate slight staleness.</td>
+</tr>
+<tr>
+<td>Book/confirm</td>
+<td><strong>p99 &lt; 1 s</strong> — a transaction with payment; correctness over raw speed.</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td>High for browse; <strong>booking favors consistency (CP)</strong> — refuse rather than double-sell under partition.</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td><strong>Strong / linearizable on inventory</strong> — a seat transitions AVAILABLE→HELD→SOLD exactly once. Idempotent writes.</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>Confirmed bookings + payments durably committed (quorum/transaction) before ack; never lose a paid booking.</td>
+</tr>
+<tr>
+<td>Hold semantics</td>
+<td>TTL hold (e.g. 5–10 min), auto-released on expiry; bounded, fair.</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>AuthN/Z; payment via tokenized PSP; idempotency keys; audit of state transitions.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>THE SPIKE (the only number that matters)
+  Hot on-sale: ~1,000,000 users arrive within the first minute for ~50,000 seats.
+  -&gt; If all browse the seat-map: 10^6 seat-map reads in ~60 s ≈ ~17K read QPS just for one event,
+     plus polling for live updates. Reads dominate massively.
+  -&gt; But only ~50,000 successful WRITES exist total (one per seat). The write set is TINY and BOUNDED.
+  Insight: contention is extreme (10^6 users : 5*10^4 seats = ~20:1 chase per seat early on),
+  but total successful writes &lt;= seat count. We must serialize claims, not scale writes infinitely.
+
+SEAT-MAP READ LOAD
+  17K QPS * a few KB seat-map = tens of MB/s. Cache the seat-map per event; invalidate on state change.
+  Most reads served from cache/CDN; &quot;is THIS seat free&quot; confirmed transactionally only at hold time.
+
+WRITE / CONTENTION
+  Per popular seat, maybe 100s of users try to hold it near-simultaneously -&gt; 1 wins, rest get
+  &quot;taken.&quot; The DB must serialize per-seat: a conditional update on one row. Throughput needed =
+  (seats) * (a few attempts) over the spike, easily handled by a per-event shard — it's bounded.
+
+HOLD STATE
+  50,000 seats * (state + holder + expiry) ~100 B = ~5 MB per event in a fast store. Trivial.
+  Holds expire via TTL; a sweeper or lazy check reclaims. Hold churn (select-&gt;abandon) may be 2-3x
+  the seat count over the sale -&gt; ~150K hold ops; still small and bounded.
+
+STORAGE (confirmed)
+  Per event 50K bookings * ~1 KB (seats, user, payment ref, ts) = ~50 MB/event.
+  10^4 events/yr -&gt; ~500 GB/yr. Modest; partition by event.
+
+PAYMENTS
+  Each confirm = 1 idempotent PSP auth in the hold window. 50K successful payments/event over the
+  sale; idempotency keys dedup retries/webhook redeliveries so we never double-charge.
+</code></pre>
+<h2>5) API design</h2>
+<pre><code># Browse (cacheable, high volume)
+GET  /v1/events/{eventId}                         -&gt; event + summary availability
+GET  /v1/events/{eventId}/seatmap                 -&gt; [ {seatId, section, state:AVAILABLE|HELD|SOLD} ]
+                                                     (served from cache; slightly stale OK)
+
+# Hold (strongly consistent; the contended write)
+POST /v1/holds                                    # atomically claim seats if all AVAILABLE
+   body: { eventId, seatIds[], userId, Idempotency-Key }
+   -&gt; 201 { holdId, seatIds, expiresAt }  | 409 { conflictSeats:[...] }
+
+DELETE /v1/holds/{holdId}                          # voluntary release (else TTL auto-releases)
+
+# Confirm / pay (idempotent transaction)
+POST /v1/bookings                                  # convert hold -&gt; sale after payment
+   body: { holdId, paymentToken, Idempotency-Key }
+   -&gt; 201 { bookingId, seatIds, status:CONFIRMED } | 410 hold expired | 402 payment failed
+
+GET  /v1/bookings/{bookingId}
+POST /v1/bookings/{bookingId}:cancel               -&gt; refund + release seats
+</code></pre>
+<p>All mutating calls carry an <strong>Idempotency-Key</strong>; the server records <code>key -&gt; result</code> so a retried request returns the original outcome instead of acting twice.</p>
+<h2>6) Architecture — request &amp; data flow</h2>
+<p><strong>(a) ASCII layered request/data flow</strong></p>
+<pre><code>        Clients (web / mobile / API)
+                 |
+                 v
+        [ CDN / Edge ]  ----  static assets + CACHED seat-map snapshots (slightly stale)
+                 |
+                 v
+        [ Global LB / GeoDNS ]   anycast, health-checked
+                 |
+                 v
+        +===========================================================+
+        |   WAITING ROOM / ADMISSION CONTROL  (flash-crowd shield)  |  token-bucket admit;
+        |   queue users for hot events; admit at backend's capacity |  fair, throttled entry
+        +===========================================================+
+                 |  admitted requests only
+                 v
+        [ API Gateway ]   authN/Z, rate-limit, idempotency-key check, routing
+            /              |                       \
+           v               v                        v
+   [ Seat-map / Read svc ] [ Booking svc (stateless) ]   [ Payment svc ]
+        | (cache-first)        |  strongly-consistent      |  idempotent
+        v                      |  ops, PARTITIONED BY EVENT|  PSP auth
+   [ Seat-map cache ]          v                           v
+   (Redis, per event) &lt;--inval--+                    [ Payment PSP ]  (external)
+        ^                       |                           |
+        | invalidate on         |  conditional writes       | webhook (idempotent)
+        | state change          v                           |
+        |          +======================================+ |
+        +----------|  INVENTORY STORE (source of truth)   |&lt;+
+                   |  per-event SHARD; per-seat row:      |
+                   |  state + holder + version + expiry   |
+                   |  atomic CAS / row-lock; quorum commit|
+                   +======================================+
+                        |                 |
+                        | hold TTL         | confirmed booking
+                        v                 v
+                 [ Expiry sweeper ]   [ Bookings store + Outbox ]
+                 reclaim expired      durable sale; outbox -&gt; async
+                 holds -&gt; AVAILABLE   (email/ticket issue, analytics)
+</code></pre>
+<p><strong>Read path (browse — the 99%).</strong> Clients hit the <strong>CDN/edge</strong> for static assets and a <strong>cached seat-map snapshot</strong> that is <em>intentionally slightly stale</em> (refreshed every second or two, or on invalidation). The <strong>Seat-map read service</strong> is cache-first (Redis per event), so a million browsers don't hammer the source of truth. Staleness here is fine — the <em>authoritative</em> check on "is this seat actually free" happens transactionally at <strong>hold</strong> time, not at browse time. This split (cheap stale reads, strict writes) is what keeps the read path fast under the spike.</p>
+<p><strong>Write path (hold → pay → confirm — the contended core).</strong> For a hot on-sale, requests first pass the <strong>waiting room / admission control</strong>, which queues users and admits them at the rate the backend can safely absorb (token bucket), turning a stampede into a manageable stream. An admitted <strong>hold</strong> request goes through the gateway (which checks the <strong>idempotency key</strong>) to the <strong>Booking service</strong>, which is <strong>stateless but partitioned by event</strong>, and performs a <strong>conditional write</strong> on each seat row in the <strong>Inventory store</strong> (the source of truth): <em>set state HELD and holder=me and expiry=now+TTL only if the seat is currently AVAILABLE</em> — an atomic compare-and-set / row lock. If all requested seats flip, we return a <code>holdId</code> + <code>expiresAt</code>; if any seat was already taken, we fail with the conflicting seats (and roll back any partial holds). The seat-map cache is <strong>invalidated</strong> so others see the change. The user then <strong>pays</strong>: the <strong>Payment service</strong> calls the external <strong>PSP idempotently</strong> (keyed by the idempotency key), and on success the <strong>Booking service</strong> atomically transitions the held seats <strong>HELD→SOLD</strong> and writes a durable <strong>booking</strong> (quorum-committed), using an <strong>outbox</strong> to fire async side-effects (ticket issuance, email, analytics). If the user abandons, the <strong>expiry sweeper</strong> (and/or a lazy check at next access) returns expired holds to AVAILABLE — so no seat is lost forever.</p>
+<p><strong>(b) Mermaid flowchart</strong></p>
+<div class="mermaid">
+flowchart TD
+  client[Clients] --> cdn[CDN / Edge: cached seat-map]
+  cdn --> lb[Global LB / GeoDNS]
+  lb --> wr[Waiting room / admission control - token-bucket admit]
+  wr --> gw[API Gateway: authN/Z, idempotency-key, rate-limit]
+
+  gw --> readsvc[Seat-map read svc - cache-first]
+  gw --> booksvc[Booking svc - stateless, partitioned by event]
+  gw --> paysvc[Payment svc - idempotent]
+
+  readsvc --> cache[(Seat-map cache - Redis per event)]
+  booksvc -->|conditional CAS: AVAILABLE->HELD| inv[(Inventory store - per-event shard, per-seat row + version + expiry)]
+  inv -. invalidate .-> cache
+  paysvc --> psp[Payment PSP - external]
+  psp -. idempotent webhook .-> paysvc
+  booksvc -->|HELD->SOLD on payment| inv
+  inv --> sweep[Expiry sweeper: reclaim expired holds]
+  booksvc --> book[(Bookings store + Outbox)]
+  book --> async[Async: ticket issue / email / analytics]
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<p><strong>Inventory — strongly-consistent store, partitioned by event.</strong> Per-seat row is the unit of contention:</p>
+<pre><code>Seat (PK = (eventId, seatId)):
+  state    : AVAILABLE | HELD | SOLD
+  holder   : holdId / userId (null if AVAILABLE)
+  version  : monotonically increasing  -- for optimistic CAS
+  expiry   : hold expiry timestamp (null unless HELD)
+Partitioning: shard by eventId  -&gt; all contention for an event lives in one shard/partition.
+Transition: conditional update guarded by state (and version) -&gt; the seat changes hands exactly once.
+</code></pre>
+<p>Why a <strong>strongly-consistent transactional store</strong> (relational with row locks / SERIALIZABLE, or a strongly-consistent KV with per-key linearizable CAS — first-principles: I need <strong>linearizable single-row read-modify-write</strong> with durability): the whole problem is serializing the claim on a single seat. A row lock or a compare-and-set on <code>version</code>/<code>state</code> gives me exactly "this seat moves AVAILABLE→HELD→SOLD once, no double-booking." <strong>Partitioning by event</strong> means a hot concert's contention is isolated to its own shard and can't starve other events; within the event, <strong>per-seat</strong> rows mean contention is only between users chasing the <em>same</em> seat, not the whole event.</p>
+<p><strong>Bookings — durable record + outbox.</strong> Confirmed sales are an append-mostly store (relational or KV), quorum-committed before we ack the user. An <strong>outbox</strong> table written in the same transaction guarantees async side-effects (ticket/email) fire exactly-once-ish without losing them.</p>
+<p><strong>Idempotency store — key → result.</strong> Small fast KV mapping <code>Idempotency-Key -&gt; {status, response}</code> with a TTL, so retries and webhook redeliveries are deduped.</p>
+<p><strong>Seat-map cache — Redis per event.</strong> Holds the rendered availability snapshot for fast browse; invalidated on state changes; tolerates brief staleness.</p>
+<p><strong>For general admission</strong> (the simpler variant): replace per-seat rows with a single <strong>atomic counter</strong> <code>available</code> per ticket-class, decremented under a conditional check (<code>available &gt; 0</code>) — same CAS idea, one row. Oversell prevention = the atomic decrement.</p>
+<p>Stores deliberately rejected as source of truth: an <strong>eventually-consistent</strong> store (would allow two buyers to both "win" a seat during convergence — a correctness violation); a pure cache (no durability/linearizability). Eventual consistency is fine for the <em>seat-map display</em> but never for the <em>claim</em>.</p>
+<h2>8) Deep dive</h2>
+<h3>Deep dive A — Locking, holds with TTL, and oversell prevention</h3>
+<p><strong>The claim must be serialized per seat.</strong> Two strategies:</p>
+<ul>
+<li><strong>Optimistic concurrency control (OCC):</strong> read the seat's <code>version</code>, then <code>UPDATE ... SET state=HELD, version=version+1 WHERE seatId=? AND version=?</code> — the update succeeds for exactly one racer; everyone else's <code>version</code> is stale and their update affects 0 rows → they retry or get "taken." No lock is held across user think-time. <strong>Best when contention per row is moderate</strong> and transactions are short.</li>
+<li><strong>Pessimistic locking:</strong> <code>SELECT ... FOR UPDATE</code> to lock the seat row for the duration of the transaction, then update. Guarantees the winner but <strong>holds a lock</strong>, risking contention/deadlocks under a stampede if transactions are long.</li>
+</ul>
+<p><strong>Choice:</strong> <strong>optimistic CAS for the hold</strong> (transactions are short — just flip the row; holding a DB lock across the user's multi-minute checkout is a non-starter), and the <strong>hold itself acts as an application-level lock with a TTL</strong> rather than a database lock. This is the key idea: we do <strong>not</strong> keep a DB row lock while the user pays — instead, the row's state=HELD + expiry <em>is</em> the lock, enforced by the next CAS. So:</p>
+<ul>
+<li><strong>Hold = soft lock with TTL.</strong> AVAILABLE→HELD via CAS sets <code>expiry = now + TTL</code> (e.g. 7 min). While HELD, other holds' CAS guards (<code>WHERE state=AVAILABLE</code>) fail, so the seat is protected. The user can pay at leisure within the window.</li>
+<li><strong>Auto-release on expiry.</strong> A <strong>sweeper</strong> periodically flips HELD→AVAILABLE where <code>expiry &lt; now</code> (and a <strong>lazy check</strong>: any access treats an expired hold as available, CAS-reclaiming it). So an abandoned cart never strands a seat. Belt-and-suspenders: lazy + sweeper.</li>
+<li><strong>Confirm = HELD→SOLD via CAS</strong> guarded by <code>WHERE state=HELD AND holder=me AND expiry&gt;now</code>. If the hold expired mid-payment, the confirm fails (state no longer HELD) and we refund the (idempotent) charge — better than double-selling.</li>
+<li><strong>Oversell prevention</strong> falls out naturally: every transition is a guarded conditional update on a single linearizable row (or atomic counter for GA), so a seat can be SOLD by exactly one booking. There is <strong>no path</strong> where two transactions both observe AVAILABLE and both win — the CAS/version guard serializes them.</li>
+</ul>
+<p><strong>Multi-seat holds (atomicity).</strong> Holding seats {A,B,C} must be all-or-nothing. Either wrap them in one transaction (acquire all in a canonical order to avoid deadlock, or CAS each and roll back on first failure), returning the conflicting seats so the user can adjust. Canonical ordering of seat acquisition prevents the classic deadlock.</p>
+<h3>Deep dive B — Idempotent payments + flash-crowd admission control</h3>
+<p><strong>Idempotent payments (no double-charge, no double-book).</strong> Payment + confirmation is where retries are most dangerous: a user double-clicks, a network blip retries, or the PSP redelivers a webhook. Defenses:</p>
+<ul>
+<li><strong>Idempotency-Key on every mutating call.</strong> The gateway/booking service records <code>key -&gt; {state, result}</code>. A repeat of the same key returns the <strong>stored result</strong> (or, if in-flight, blocks/returns "processing") instead of executing again. So a retried <code>POST /bookings</code> never creates a second booking or a second charge.</li>
+<li><strong>Idempotent PSP call.</strong> Pass the same idempotency key to the payment provider so the <em>provider</em> dedups the charge — a retry authorizes once.</li>
+<li><strong>Exactly-once-ish side effects via outbox.</strong> The booking row and an outbox entry are written in <strong>one transaction</strong>; a relay publishes the outbox event to issue tickets/emails. Consumers are idempotent (keyed by bookingId), so redelivery is safe. This avoids the dual-write problem (DB committed but message lost, or vice versa).</li>
+<li><strong>Saga for the cross-service flow.</strong> hold → charge → confirm spans services; model it as a <strong>saga with compensation</strong>: if confirm fails after a successful charge, <strong>refund</strong> (compensating action) and release the hold; if charge fails, release the hold. No distributed 2PC needed — compensations keep it eventually consistent <em>and</em> correct on money/seats.</li>
+</ul>
+<p><strong>Flash-crowd admission control (the real-world necessity).</strong> A million users at t=0 will overwhelm any backend if let in raw. The <strong>waiting room</strong> turns a stampede into a stream:</p>
+<ul>
+<li>Users hitting a hot on-sale get a <strong>queue token</strong> and a position; the system <strong>admits at the rate the booking shard can safely sustain</strong> (a token bucket sized to inventory + DB capacity). Once inventory is exhausted, late arrivals are told "sold out" without ever touching the inventory store.</li>
+<li>This <strong>protects the strongly-consistent core</strong> (which can't scale infinitely) by bounding concurrency, and gives <strong>fairness</strong> (FCFS by queue position) — far better UX than random failures.</li>
+<li>Combined with <strong>per-event partitioning</strong>, a hot event's waiting room and shard absorb the spike in isolation; other events are unaffected.</li>
+</ul>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Option A</th>
+<th>Option B</th>
+<th>Choice &amp; why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Locking</td>
+<td>Pessimistic <code>SELECT FOR UPDATE</code></td>
+<td>Optimistic CAS (version)</td>
+<td><strong>Optimistic CAS</strong> for short hold txn; never hold a DB lock across user checkout.</td>
+</tr>
+<tr>
+<td>Hold mechanism</td>
+<td>DB lock for hold duration</td>
+<td>App-level HELD state + TTL</td>
+<td><strong>HELD + TTL soft lock</strong> — user pays without blocking the DB; sweeper/lazy reclaim.</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td>Eventual</td>
+<td>Strong / linearizable</td>
+<td><strong>Strong on inventory (CP)</strong> — eventual would double-sell during convergence.</td>
+</tr>
+<tr>
+<td>Seat-map reads</td>
+<td>Strong read each time</td>
+<td>Cache, slightly stale</td>
+<td><strong>Cache (stale OK)</strong> — authoritative check is at hold time; keeps browse fast.</td>
+</tr>
+<tr>
+<td>Cross-service txn</td>
+<td>2PC distributed transaction</td>
+<td>Saga + compensation</td>
+<td><strong>Saga</strong> — refund/release as compensations; avoids fragile distributed locks.</td>
+</tr>
+<tr>
+<td>Payment safety</td>
+<td>Hope retries are rare</td>
+<td>Idempotency keys end-to-end</td>
+<td><strong>Idempotency keys</strong> (+ idempotent PSP, outbox) — retries/webhooks never double-act.</td>
+</tr>
+<tr>
+<td>Flash crowd</td>
+<td>Let everyone in, autoscale</td>
+<td>Waiting room / admission</td>
+<td><strong>Waiting room</strong> — bounds concurrency on the CP core; fair FCFS.</td>
+</tr>
+<tr>
+<td>Partitioning</td>
+<td>Global inventory table</td>
+<td>Partition by event</td>
+<td><strong>By event</strong> — isolate a hot event; contention only per-seat within it.</td>
+</tr>
+<tr>
+<td>Confirm-after-expiry</td>
+<td>Allow (risk double-sell)</td>
+<td>Fail + refund</td>
+<td><strong>Fail + refund</strong> — never sell a seat twice; money is reversible, a double-book isn't.</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Hot partition (one viral on-sale).</strong> All contention concentrates on one event's shard. <em>Mitigation:</em> <strong>partition by event</strong> so it's isolated; <strong>waiting room</strong> caps the admitted rate to what the shard handles; per-seat rows mean intra-event contention is fine-grained, not table-wide.</li>
+<li><strong>Hot row (everyone wants seat 1A / front row).</strong> Many CAS attempts on one row. <em>Mitigation:</em> CAS is cheap and serializes correctly (one winner); failed racers get instant "taken" and move on; for GA the single counter is the hot row — shard the counter into N sub-counters and sum, decrementing a random shard (reduces contention while preserving the total).</li>
+<li><strong>Thundering herd on seat-map reads.</strong> A million browsers polling. <em>Mitigation:</em> cache the seat-map at CDN/Redis, push updates or short-TTL poll, serve slightly stale — the authoritative check is deferred to hold time.</li>
+<li><strong>Abandoned holds stranding inventory.</strong> Users select then vanish, seats look sold but aren't. <em>Mitigation:</em> <strong>TTL auto-release</strong> via sweeper + lazy reclaim on access; bounded hold count per user.</li>
+<li><strong>Payment succeeds but confirm/booking fails (or vice versa).</strong> Dual-write / partial failure → charged but no seat, or seat but no record. <em>Mitigation:</em> <strong>saga with compensation</strong> (refund on confirm-failure) + <strong>outbox</strong> for exactly-once side-effects + <strong>idempotency keys</strong> so retries converge.</li>
+<li><strong>Double-charge on retry/webhook redelivery.</strong> <em>Mitigation:</em> idempotency keys at gateway and PSP; idempotent webhook consumers keyed by bookingId.</li>
+<li><strong>Inventory store as SPOF / partition.</strong> It's the linearizable core. <em>Mitigation:</em> quorum replication (R+W&gt;N) for HA <em>without</em> sacrificing the per-row linearizability; on partition, <strong>fail closed</strong> (refuse the booking) rather than risk a split-brain double-sell — CP by design.</li>
+<li><strong>Clock skew affecting TTL.</strong> Expiry compared across nodes. <em>Mitigation:</em> evaluate expiry at the inventory store's authoritative clock; treat borderline as expired (safe direction is releasing, then re-CAS).</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>More concurrent hot events.</strong> Partition-by-event already isolates them; add booking-service capacity and shard the inventory store across more nodes. The waiting room scales horizontally (it's stateless queueing).</li>
+<li><strong>A single mega-event (10^7 users, 10^5 seats).</strong> One event's shard is the limit. <strong>Sub-shard by section/block</strong> (rows of seats) so different sections live on different partitions; the waiting room meters admission; GA counters are split into sharded sub-counters. Pre-warm caches and pre-generate the seat-map.</li>
+<li><strong>Global audience.</strong> Place inventory <strong>near the venue/region</strong> (an event is inherently regional), with the waiting room and read caches global. Cross-region reads are cached/stale; the authoritative claim stays in the home region (strong consistency is local to the shard, which is fine — an event lives in one place).</li>
+<li><strong>Resale / secondary market.</strong> Adds a transfer transaction (atomic seat ownership change) and anti-scalping (bot detection, purchase limits) — composed on top of the same inventory primitives.</li>
+<li><strong>Tighter fairness / anti-bot.</strong> Strengthen the waiting room (proof-of-work, account verification, per-user limits) to keep scalpers from monopolizing the admitted stream.</li>
+<li><strong>What breaks first:</strong> the single-event inventory shard under a mega-on-sale (escape: sub-shard by section + waiting-room metering) and the GA counter hot row (escape: sharded counters). The per-event partitioning means the <em>platform</em> never goes down for one hot event.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"How do you guarantee no double-booking?"</strong> Every seat transition is a <strong>conditional CAS on a single linearizable row</strong> (<code>...WHERE state=AVAILABLE</code>/<code>version=?</code>). Exactly one racer's update succeeds; there is no interleaving where two both observe AVAILABLE and both win. The store is strongly consistent (CP).</li>
+<li><strong>"Optimistic or pessimistic locking?"</strong> <strong>Optimistic CAS</strong> for the hold — the transaction is short (flip a row), and I refuse to hold a DB lock across the user's multi-minute checkout. The <strong>HELD state + TTL is the lock</strong> during payment, not a database lock.</li>
+<li><strong>"How does the hold work and what if the user abandons?"</strong> AVAILABLE→HELD via CAS sets <code>expiry=now+TTL</code>; the seat is protected because others' CAS guards fail. On abandon, a <strong>sweeper + lazy check</strong> reclaim expired holds back to AVAILABLE — no seat lost forever.</li>
+<li><strong>"Payment fails after you marked the seat held — or succeeds but confirm fails?"</strong> Modeled as a <strong>saga</strong>: charge then confirm; if confirm fails after charge, <strong>refund (compensation)</strong> and release the hold; if charge fails, release the hold. Money is reversible; a double-book isn't, so I never confirm a seat twice.</li>
+<li><strong>"How do you make payments idempotent?"</strong> <strong>Idempotency keys</strong> end-to-end: gateway stores <code>key→result</code>, the PSP dedups the charge by the same key, and webhook consumers are idempotent by bookingId. Retries and redeliveries act once.</li>
+<li><strong>"A million people hit on-sale at once — what happens?"</strong> A <strong>waiting room</strong> issues queue tokens and admits at the rate the booking shard sustains (token bucket); once inventory's gone, late arrivals get "sold out" without touching the core. Plus <strong>partition-by-event</strong> isolates the spike.</li>
+<li><strong>"Isn't a strongly-consistent inventory store a scaling bottleneck?"</strong> It's bounded: total successful writes ≤ seat count, and contention is <strong>per-seat</strong> within a <strong>per-event shard</strong>. I scale by partitioning by event (and by section for mega-events) and by metering admission — not by making inventory eventually consistent.</li>
+<li><strong>"General admission instead of seats?"</strong> Replace per-seat rows with an <strong>atomic counter</strong> decremented under <code>available&gt;0</code>; oversell prevention is the atomic decrement. Shard the counter into sub-counters if the single row gets too hot.</li>
+<li><strong>"What about the seat-map showing stale availability?"</strong> That's intentional — browse reads are cached and slightly stale; the <strong>authoritative check happens at hold time</strong> via CAS, so a stale map never causes a double-book, only an occasional "that seat was just taken."</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Focus</th>
+<th>What to land</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–6 min</td>
+<td>Clarify</td>
+<td>Assigned-seat vs GA; <strong>strong consistency / no double-book</strong>; flash-crowd scale; hold TTL; idempotent payment.</td>
+</tr>
+<tr>
+<td>6–10 min</td>
+<td>FR / NFR</td>
+<td>browse / hold / confirm / auto-release; CP on inventory; idempotency; oversell = zero.</td>
+</tr>
+<tr>
+<td>10–16 min</td>
+<td>Estimation</td>
+<td>The spike (10^6 users : 5*10^4 seats); writes bounded by seat count; cache the seat-map; per-event shard.</td>
+</tr>
+<tr>
+<td>16–22 min</td>
+<td>API + high-level arch</td>
+<td>hold (CAS) → pay (idempotent) → confirm (CAS); waiting room → gateway → booking/payment → inventory; draw it.</td>
+</tr>
+<tr>
+<td>22–40 min</td>
+<td>Deep dive</td>
+<td>Optimistic CAS + <strong>HELD-state-as-soft-lock with TTL</strong> + sweeper/lazy reclaim; idempotency keys; saga+outbox; waiting room.</td>
+</tr>
+<tr>
+<td>40–48 min</td>
+<td>Tradeoffs</td>
+<td>Optimistic vs pessimistic; HELD+TTL vs DB lock; saga vs 2PC; fail-closed on partition.</td>
+</tr>
+<tr>
+<td>48–54 min</td>
+<td>Bottlenecks</td>
+<td>Hot event (partition+waiting room), hot row (sharded GA counter), abandoned holds (TTL), dual-write (saga+outbox).</td>
+</tr>
+<tr>
+<td>54–60 min</td>
+<td>Scale 10×</td>
+<td>Sub-shard mega-events by section; regional inventory near venue; sharded GA counters; anti-bot in waiting room.</td>
+</tr>
+</tbody>
+</table></article></div></body></html>

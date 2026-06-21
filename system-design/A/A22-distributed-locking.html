@@ -1,0 +1,398 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>A22 — Design a distributed locking / coordination service (Chubby, ZooKeeper)</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="index.html">&larr; All system-design questions</a><article class="doc"><h1>A22 — Design a distributed locking / coordination service (Chubby, ZooKeeper)</h1>
+<p>Design a highly-available <strong>coordination service</strong> that lets many distributed processes agree on shared state — acquire <strong>locks</strong>, <strong>elect a leader</strong>, store small bits of metadata, and <strong>watch</strong> for changes — with strong correctness guarantees even when nodes crash and networks partition. It tests the thing Google cares about most here: <strong>consensus and coordination</strong> — <strong>Chubby is Google's own system</strong>, so they expect crisp <strong>Paxos/Raft</strong> and <strong>lease</strong> intuition, not hand-waving. The crux is that a lock service is only useful if it is <em>correct under failure</em>: a process that <em>believes</em> it holds a lock when it no longer does must be prevented from corrupting shared state, which forces <strong>leases, fencing tokens, and split-brain prevention</strong> to the center of the design.</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>What is this used for?</strong> Coarse-grained <strong>leader election</strong> and infrequent locks (the Chubby model), or high-throughput fine-grained mutual exclusion? Chubby explicitly targets <strong>coarse-grained</strong> locks (held for hours, low rate) — confirm, because it completely changes the throughput target and whether locks live in a consensus log.</li>
+<li><strong>Lock semantics:</strong> advisory or mandatory? Are locks <strong>exclusive</strong> only, or also <strong>shared/read</strong> locks? Must a lock be <strong>automatically released</strong> if the holder crashes (i.e. lease-based with TTL)? This decides the lease + failure-detection design.</li>
+<li><strong>Correctness vs availability under partition:</strong> if the service can't reach a quorum, do we <strong>block</strong> (refuse to grant, preserve correctness — CP) or degrade to allow (AP)? For a <em>lock</em> service the answer is almost always <strong>CP</strong> — I'll state that a lock service that ever grants two holders is worthless, so we choose consistency over availability.</li>
+<li><strong>Consistency of reads:</strong> must reads be <strong>linearizable</strong> (see the latest committed value) or is bounded staleness fine for watches/metadata? This decides whether reads go through the leader/quorum or can be served from a local replica cache.</li>
+<li><strong>Scale &amp; shape:</strong> how many <strong>clients</strong>, how many lock/metadata nodes, and what op rate? Chubby intentionally serves <strong>tens of thousands of clients</strong> from a <strong>single small replica group (5)</strong> with low write rate but heavy <em>read/keepalive</em> traffic via client caches. I'll assume O(10K–100K) clients per cell, ~5 replicas, low write QPS, high keepalive/read QPS — confirm.</li>
+<li><strong>Watch / notification needs:</strong> do clients need to be <strong>notified</strong> when a key changes or a lock is released (event-driven), or is polling acceptable? Watches are central to "elect a new leader the moment the old one dies."</li>
+<li><strong>Data size:</strong> are we storing <strong>small</strong> metadata (config, pointers, locks — KBs), or large blobs? Chubby/ZooKeeper store <strong>small</strong> files only (everything fits in memory, replicated via the log) — confirm we are <em>not</em> building a database.</li>
+<li><strong>Fencing expectations:</strong> when a lock is granted, do downstream services accept a <strong>monotonic fencing token</strong> so a delayed/zombie old holder is rejected? This is the detail that makes locks <em>actually safe</em> — I'll surface it early.</li>
+<li><strong>Geography:</strong> single region/cell or global? Consensus latency is dominated by the slowest quorum member, so cross-region replicas are costly — confirm we can keep a cell regional and federate.</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> this is a <strong>distributed-systems-fundamentals</strong> interview disguised as a design. They want to hear <strong>Paxos/Raft</strong> (a replicated log via quorum, leader election, why an odd number of replicas), <strong>leases</strong> (time-bounded locks so a crashed holder is reclaimed without consensus on every read), <strong>fencing tokens</strong> (so a process pausing past its lease can't corrupt state — the famous failure mode), and <strong>split-brain prevention</strong> (why you can't have two leaders, why a majority is required). The standout move is to lead with "a lock service is only valuable if it's correct under failure," pick <strong>CP</strong> deliberately, and explain the <strong>lease + fencing</strong> combination as the answer to the GC-pause/clock-skew problem before being asked.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In-scope</strong>
+- <strong>Locks:</strong> acquire/release <strong>exclusive</strong> (and shared/read) locks on named resources; locks are <strong>lease-based</strong> with a TTL and <strong>auto-release</strong> on holder failure.
+- <strong>Leader election:</strong> a primitive (or recipe) so a set of processes elects exactly <strong>one</strong> leader, with prompt failover when the leader dies.
+- <strong>Small metadata store:</strong> a hierarchical namespace of small <strong>nodes/files</strong> (config, pointers, membership) with linearizable reads/writes.
+- <strong>Watches / notifications:</strong> clients subscribe to a node and are <strong>notified</strong> on change/delete (e.g. lock released, config updated) — event-driven, no busy-poll.
+- <strong>Sessions + keepalive:</strong> each client holds a <strong>session</strong> kept alive by heartbeats; session expiry releases the client's locks and ephemeral nodes.
+- <strong>Fencing tokens:</strong> every lock grant returns a <strong>monotonically increasing token</strong> that resource servers use to reject stale holders.
+- <strong>Consensus-backed durability:</strong> all mutations go through a <strong>replicated log</strong> (Paxos/Raft) so a committed write survives a minority failure.</p>
+<p><strong>Out-of-scope (defer)</strong>
+- A general-purpose <strong>database / large-object store</strong> — we store small coordination data only (acknowledge, hand off to a real DB).
+- <strong>High-throughput, fine-grained</strong> locking (millions of locks/sec) — Chubby is coarse-grained by design; mention sharding/partitioned consensus as the evolution.
+- <strong>Cross-region linearizable</strong> consensus as the default (expensive); keep a cell regional, federate (note).
+- The <strong>application logic</strong> that uses the lock (e.g. the actual primary-replica failover) — we provide the primitive.</p>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Correctness</td>
+<td><strong>Linearizable</strong> mutations; <strong>at most one</strong> holder of an exclusive lock at any time — this is the whole point; we never trade it away.</td>
+</tr>
+<tr>
+<td>Consistency model</td>
+<td><strong>CP</strong> (consistent + partition-tolerant): on loss of quorum the service <strong>refuses to grant/commit</strong> rather than risk two holders.</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td>As high as CP allows: tolerate <strong>f failures with 2f+1 replicas</strong> (5 replicas → survive 2). Not 99.999% during a quorum-losing partition — by design.</td>
+</tr>
+<tr>
+<td>Scale</td>
+<td>O(10K–100K) clients per cell; <strong>low write QPS</strong> (locks are coarse), <strong>high keepalive/read QPS</strong> absorbed by client caches + leader read-leases.</td>
+</tr>
+<tr>
+<td>Latency</td>
+<td>Write/lock-acquire p99 ~ a few ms (one consensus round to a regional quorum). Cached reads: sub-ms locally.</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>Every committed mutation is on a <strong>majority</strong> of replicas' logs + persisted; survives minority crash with <strong>zero data loss</strong>.</td>
+</tr>
+<tr>
+<td>Failure detection</td>
+<td>Lease/session expiry within <strong>seconds</strong> (heartbeat interval) so a dead holder's lock is reclaimed promptly.</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>ACLs per node; authenticated sessions; only authorized clients mutate or watch sensitive nodes.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>Cluster shape (the Chubby model: small, not sharded)
+  1 consensus group = 5 replicas (survive 2 failures). NOT scaled by adding
+    replicas (more replicas = slower quorum); scaled by client-side caching.
+
+Write / lock rate (LOW by design)
+  Coarse-grained: a lock held for minutes-to-hours, leader elections rare.
+  Even 100K clients doing a lock op every few minutes -&gt; O(100s) writes/s.
+  Each write = 1 Paxos/Raft round (1 RTT to a majority) -&gt; trivially served
+    by a single small group. Writes are NOT the scaling problem.
+
+Keepalive / read traffic (HIGH -&gt; this is what we engineer for)
+  100K clients each heartbeating every ~10s -&gt; 100K/10 = 10K keepalives/s.
+  Reads: clients CACHE node data and the leader grants a read LEASE; a cached
+    read is local (sub-ms, zero quorum cost). Only cache-miss / invalidation
+    touches the leader. So effective read QPS at the leader &lt;&lt; raw read QPS.
+
+Data size (small, fits in RAM)
+  Say 1M nodes * ~1 KB avg (config/locks/pointers) ~ 1 GB -&gt; entire dataset in
+    memory on every replica, replicated via the log. We are NOT a database.
+
+Consensus latency
+  Dominated by the slowest of the majority. Same-region quorum: ~1-5 ms RTT.
+  Cross-region quorum: ~50-150 ms -&gt; why we keep a cell regional and federate.
+
+Watch fan-out
+  A popular node (e.g. &quot;current leader&quot;) may have 10K watchers. On change,
+    notify all -&gt; 10K messages, batched/coalesced from the leader. Bounded;
+    watches are edge-triggered, not streamed continuously.
+
+Lease / session math
+  Session TTL ~ tens of seconds; client renews at ~1/3 TTL. A crashed client's
+    locks free within ~1 TTL. Trade shorter TTL (faster reclaim) vs more
+    keepalive traffic + false expiries under GC pause / network blip.
+</code></pre>
+<h2>5) API design</h2>
+<pre><code># Sessions (every client first opens a session; keepalives sustain it)
+open_session()              -&gt; { session_id, lease_ttl }
+keepalive(session_id)       -&gt; { lease_ttl }    # renews session + read leases
+close_session(session_id)
+
+# Namespace (small hierarchical nodes/files; like ZK znodes / Chubby files)
+create(path, data, flags)   # flags: EPHEMERAL (auto-delete on session end),
+                            #        SEQUENTIAL (append monotonic suffix)
+get(path)                   -&gt; { data, version, stat }   # may serve from cache+lease
+set(path, data, expected_version)   # CAS by version; goes through consensus
+delete(path, expected_version)
+list(path)                  -&gt; [children]
+
+# Locks (built on nodes; exclusive + shared)
+acquire(path, mode=EXCLUSIVE|SHARED, session_id)
+   -&gt; { granted: bool, fencing_token: int }     # token is MONOTONIC
+release(path, session_id)
+
+# Watches (edge-triggered notifications)
+watch(path, type=DATA|CHILDREN|EXISTS)  -&gt; fires once on next change; re-arm to continue
+
+# Leader election (recipe, built from SEQUENTIAL + EPHEMERAL + watch)
+#   create EPHEMERAL|SEQUENTIAL child under /election; lowest sequence wins;
+#   each loser watches the next-lower node; on its delete, re-check -&gt; new leader.
+</code></pre>
+<h2>6) Architecture — request &amp; data flow</h2>
+<p><strong>(a) ASCII layered flow</strong></p>
+<pre><code>        Clients (distributed processes: services, schedulers, DB primaries)
+          |  each holds a SESSION + a LOCAL CACHE of watched nodes
+          |
+          v
+     [ Client library ]   caches node data under a read-LEASE from leader;
+       |   serves cached reads LOCALLY (sub-ms); sends writes/acquires to leader;
+       |   sends KEEPALIVE heartbeats; receives WATCH notifications / cache invalidations
+       |
+       v
+   ====================  Consensus group (one cell, e.g. 5 replicas) =====================
+   |                                                                                     |
+   |        connect to any replica; writes are routed to the LEADER                      |
+   |                                                                                     |
+   |     [ Replica 1 (LEADER) ] &lt;---- Paxos/Raft: leader proposes, needs MAJORITY ack --&gt;|
+   |        |  - serializes all mutations into the REPLICATED LOG                        |
+   |        |  - holds the master LEASE (only the leader with a valid lease may serve     |
+   |        |    linearizable reads / grant locks) -&gt; split-brain prevention             |
+   |        |  - grants client read-leases + fires watches                               |
+   |        v                                                                            |
+   |     [ replicated log ] --append+fsync--&gt; committed once on a MAJORITY               |
+   |        |              \                 \                                            |
+   |        v               v                 v                                          |
+   |   [ Replica 2 ]   [ Replica 3 ]   [ Replica 4 ]   [ Replica 5 ]   (followers)       |
+   |     each applies committed log entries to its in-memory state machine               |
+   |     (the node/namespace tree); any can become leader via election                   |
+   |        |                                                                            |
+   ===========================================================================|==========
+                                                                              |
+                              persistent log + periodic snapshot on each replica
+                              (disk) -&gt; recover state after crash / catch up via log
+
+   Lock acquire path:  client -&gt; leader -&gt; propose &quot;lock X by session S, token=N&quot;
+        -&gt; majority commit -&gt; reply {granted, fencing_token=N}.  Holder then calls
+        the protected resource WITH token N; resource accepts only if N &gt;= last-seen.
+
+   Leader death:  followers miss heartbeats -&gt; run election -&gt; new leader once it has
+        a majority and the latest committed log -&gt; old leader's master lease EXPIRES
+        before new one is granted (no two valid leaders) -&gt; SPLIT-BRAIN PREVENTED.
+</code></pre>
+<p><strong>Write / lock-acquire path:</strong> a client sends a mutation (<code>set</code>, <code>create</code>, <code>acquire</code>) to whichever replica it's connected to; the request is forwarded to the <strong>leader</strong>. The leader appends the operation to the <strong>replicated log</strong> and runs one <strong>consensus round</strong> (Paxos/Raft): it's <strong>committed only once a majority</strong> of replicas have persisted it. The leader then applies it to its in-memory <strong>state machine</strong> (the node tree), replies to the client, and (for <code>acquire</code>) returns a <strong>monotonically increasing fencing token</strong>. Because every mutation is serialized through one leader's log and committed by majority, the order is <strong>linearizable</strong> and survives any minority failure with no data loss.</p>
+<p><strong>Read path:</strong> reads are the high-volume traffic, so we don't pay consensus per read. The <strong>client library caches</strong> node data under a <strong>read-lease</strong> granted by the leader; a cached read is served <strong>locally, sub-millisecond, with zero quorum cost</strong>. When a node changes, the leader <strong>invalidates</strong> the relevant clients' caches (and fires <strong>watches</strong>) before/at commit, so cached reads never go stale beyond the lease. Linearizable reads that must bypass the cache go to the leader, which serves them only while it holds a valid <strong>master lease</strong> (so a partitioned ex-leader can't serve a stale read).</p>
+<p><strong>Leader-failure / split-brain path:</strong> the leader holds a time-bounded <strong>master lease</strong>; followers expect heartbeats. If the leader crashes or is partitioned away, followers time out and run an <strong>election</strong>; a new leader is chosen only if it can assemble a <strong>majority</strong> and has the <strong>latest committed log</strong>. Critically, the <strong>old leader's master lease expires before a new one is granted</strong>, so there is never a window with two leaders serving writes — that's how split-brain is prevented. The same majority requirement means a <strong>minority</strong> partition can elect <em>nothing</em> and correctly refuses to serve (CP).</p>
+<p><strong>Lock-safety / fencing path:</strong> when a holder is granted lock <code>X</code> with token <code>N</code>, it must present <code>N</code> to the protected resource on every write; the resource tracks the highest token it has seen and <strong>rejects any write with a lower token</strong>. So even if the original holder pauses (GC, VM stall) past its lease and a <em>new</em> holder gets token <code>N+1</code>, the old holder's late write (token <code>N</code>) is fenced out — correctness holds despite clock/pause uncertainty.</p>
+<p><strong>(b) Mermaid flowchart</strong></p>
+<div class="mermaid">
+flowchart TD
+  client[Clients: services / schedulers / DB primaries] --> lib[Client library: local cache + read-lease + session keepalive]
+  lib -->|cached read: sub-ms, no quorum| localread[Local cached value]
+  lib -->|write / acquire / linearizable read| leader[Leader replica: holds master lease]
+  leader -->|propose + replicate| log[(Replicated log)]
+  log -->|majority ack = committed| f2[Follower R2]
+  log --> f3[Follower R3]
+  log --> f4[Follower R4]
+  log --> f5[Follower R5]
+  leader -->|apply| sm[(In-memory state machine: node tree)]
+  f2 --> sm2[(Follower state machine)]
+  leader -->|grant fencing token N| lib
+  lib -->|call resource WITH token N| resource[Protected resource: accept only if N >= last-seen]
+  leader -. invalidate cache / fire watch .-> lib
+  leader -. heartbeat .-> f2
+  f2 -. missed heartbeats -> election .-> elect[Elect new leader: needs majority + latest log]
+  elect -->|old master lease expired first| leader
+  log --> snap[(Disk: log + snapshot, crash recovery)]
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<ul>
+<li><strong>Replicated log (the core) — a consensus-backed append-only log via Paxos/Raft.</strong> First-principles: the <em>only</em> way to get multiple machines to agree on an order of operations despite crashes is to commit each operation to a <strong>majority</strong> and replay it deterministically. Every mutation (<code>create/set/delete/acquire/release</code>) is a log entry; "committed" means "on a majority's durable log." This is what gives linearizability and zero-data-loss on minority failure — and it's why we explain Paxos/Raft instead of naming a database.</li>
+<li><strong>In-memory state machine (the node tree) — a hierarchical namespace</strong> of small nodes: <code>path -&gt; { data (small, KBs), version, acl, ephemeral?, sequential?, owner_session, watchers[] }</code>. First-principles: the dataset is <strong>small and read-hot</strong>, so keeping the whole tree in RAM on every replica makes reads cheap and lets any replica take over as leader instantly; durability comes from the <em>log</em>, not from a disk-resident DB.</li>
+<li><strong>Persistent log + periodic snapshots — on local disk per replica.</strong> First-principles: the in-memory state is reconstructable by replaying the log, but replaying from the beginning is slow, so we <strong>snapshot</strong> the state machine periodically and truncate the log behind it; a recovering/lagging replica loads the latest snapshot then tails the log. fsync on the log before acking a commit is what makes "committed" actually durable.</li>
+<li><strong>Sessions &amp; leases — in-memory, tied to the log.</strong> Sessions and their lease expirations are coordinated through the leader (and logged when locks/ephemeral nodes are created) so that <strong>session expiry → release of locks + deletion of ephemeral nodes</strong> is itself a consistent, replicated event, not a local guess.</li>
+<li><strong>Fencing tokens — a monotonic counter in the state machine.</strong> First-principles: safety against zombie holders requires a value that <strong>strictly increases</strong> and is handed to the protected resource; the consensus log naturally provides a monotonic sequence (e.g. the lock node's version or a global counter), so the token is "free" and globally ordered.</li>
+<li><strong>Why NOT a regular database or KV store for this?</strong> A normal DB gives durability but not the <em>agreement</em> primitive we need (single-leader, majority-committed order, lease-bounded leadership). And we must <strong>block</strong> rather than serve under quorum loss — most databases prefer availability. The consensus log + small in-memory state machine is precisely the minimal structure that delivers linearizable coordination, which is why Chubby/ZooKeeper are built this way rather than on top of a DB.</li>
+</ul>
+<h2>8) Deep dive</h2>
+<p><strong>Deep dive A — consensus, leadership, and split-brain (Paxos/Raft).</strong> This is the crux Google is probing.</p>
+<ul>
+<li><strong>Why a majority (quorum):</strong> any two majorities of <code>N</code> nodes overlap in at least one node, so two conflicting decisions can't both be committed — that single shared node would have to vote for both. This is the bedrock of both <strong>log commit</strong> (a value is committed when a majority has it) and <strong>leader election</strong> (a leader needs majority votes). With <strong>2f+1</strong> replicas you tolerate <strong>f</strong> failures; an <strong>odd</strong> count maximizes fault tolerance per node (4 replicas tolerate the same 1 failure as 3, just costs more).</li>
+<li><strong>Leader (the optimization Paxos/Raft add):</strong> naive Paxos can dueling-propose forever; electing a stable <strong>leader</strong> lets one node sequence all proposals (one round-trip per commit) and serve reads. Raft makes this explicit (terms, log matching, leader completeness); Multi-Paxos is the same idea. I'd describe Raft for clarity: leader appends to followers, commits on majority ack, steps down if it can't reach a majority.</li>
+<li><strong>Split-brain prevention via master lease:</strong> a network partition could leave an old leader on one side and a freshly elected leader on the other. We prevent two <em>active</em> leaders by giving the leader a <strong>time-bounded master lease</strong>: it may only serve linearizable reads / grant locks while the lease is valid, and a <strong>new leader's lease is not granted until the old one is guaranteed expired</strong> (waiting out the lease, with a safety margin for clock skew). A partitioned-away ex-leader's lease lapses, so it stops serving before a new leader starts — never two valid leaders at once. The minority side, unable to reach a majority, elects nobody and correctly refuses service (CP).</li>
+<li><strong>Membership changes:</strong> adding/removing replicas is done as a special committed log entry (joint consensus / single-server changes) so the quorum definition itself changes safely — a classic gotcha worth naming.</li>
+</ul>
+<p><strong>Deep dive B — leases, failure detection, and fencing (why locks are actually safe).</strong> A lock that can be silently lost is dangerous; this is the part most candidates miss.</p>
+<ul>
+<li><strong>Leases instead of perpetual locks:</strong> a lock/session is granted for a <strong>TTL</strong>; the holder must <strong>renew</strong> (keepalive at ~1/3 TTL). If the holder crashes or is partitioned, the lease <strong>expires</strong> and the service reclaims the lock <strong>without needing to reach the dead holder</strong> — failure detection is just "missed enough heartbeats." This avoids the impossible task of distinguishing "crashed" from "slow" perfectly; we simply bound it by time.</li>
+<li><strong>The fundamental danger — the GC-pause / clock-skew problem:</strong> suppose holder A acquires the lock, then its process <strong>freezes</strong> (a multi-second GC or VM pause) past the lease. The service, seeing no renewal, grants the lock to B. A then <strong>wakes up still believing it holds the lock</strong> and writes to the shared resource — now A and B both "hold" it. No tightening of timeouts fully closes this, because pauses and clock skew are unbounded in the general case.</li>
+<li><strong>Fencing tokens — the real fix:</strong> each grant carries a <strong>strictly increasing token</strong> (A gets <code>N</code>, B gets <code>N+1</code>). Every write to the <strong>protected resource</strong> must include the token, and the resource <strong>rejects any token lower than the highest it has seen</strong>. So A's late write (token <code>N</code>) is refused after B has written with <code>N+1</code>. This converts an impossible-to-avoid timing problem into a trivially-enforced <strong>monotonicity check at the resource</strong> — and it's the detail that makes a lock service genuinely correct. I'd emphasize that <strong>the lock service alone can't guarantee mutual exclusion of side effects; the protected resource must participate via fencing.</strong></li>
+<li><strong>Tuning leases:</strong> shorter TTL → faster reclaim on real failure but more keepalive traffic and more <strong>false expirations</strong> under transient pauses/blips; longer TTL → fewer false positives but slower failover. Add jitter and a safety margin for clock skew; never assume synchronized clocks for <em>correctness</em> (only for liveness).</li>
+</ul>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Choice &amp; why</th>
+<th>Tradeoff accepted</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CAP</td>
+<td><strong>CP</strong> — refuse service on quorum loss rather than risk two lock holders</td>
+<td>Unavailable to a minority partition (by design; correctness &gt; availability)</td>
+</tr>
+<tr>
+<td>Consensus algorithm</td>
+<td><strong>Leader-based Paxos/Raft</strong> (one round-trip per commit)</td>
+<td>Leader is a temporary write bottleneck/SPOF; mitigated by fast re-election</td>
+</tr>
+<tr>
+<td>Cluster size</td>
+<td>Small <strong>5-replica</strong> group; scale by client caching, not more replicas</td>
+<td>More replicas would <em>slow</em> quorum; capacity comes from caches + leases</td>
+</tr>
+<tr>
+<td>Lock model</td>
+<td><strong>Lease-based</strong> with TTL + auto-release</td>
+<td>False expirations under GC/network pauses; tune TTL + jitter</td>
+</tr>
+<tr>
+<td>Lock safety</td>
+<td><strong>Fencing tokens</strong> enforced at the resource</td>
+<td>Requires the protected resource to check tokens (not transparent)</td>
+</tr>
+<tr>
+<td>Reads</td>
+<td><strong>Client cache + read-lease</strong>, served locally</td>
+<td>Cache must be invalidated on write; linearizable reads still hit leader</td>
+</tr>
+<tr>
+<td>Read consistency</td>
+<td>Linearizable via leader+master-lease; cached reads bounded-stale within lease</td>
+<td>A linearizable read costs a leader round-trip / lease check</td>
+</tr>
+<tr>
+<td>Data scope</td>
+<td><strong>Small</strong> in-memory node tree, durable via log+snapshot</td>
+<td>Not a database; large data must live elsewhere</td>
+</tr>
+<tr>
+<td>Failover speed vs stability</td>
+<td>Master lease must expire before new leader serves</td>
+<td>A brief unavailability window (~lease) during leader change</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Split-brain (two leaders grant the same lock).</strong> <em>Mitigation:</em> <strong>majority-quorum</strong> election (two leaders can't both hold majority) + <strong>master lease</strong> (old lease expires before new leader serves) + <strong>fencing tokens</strong> as the last line at the resource. This is the headline correctness guarantee.</li>
+<li><strong>The zombie/GC-pause holder writing after lease loss.</strong> <em>Mitigation:</em> <strong>fencing tokens</strong> rejected by the resource if stale — the only robust fix, because timeouts alone can't bound pauses.</li>
+<li><strong>Leader is a write/throughput bottleneck or SPOF.</strong> <em>Mitigation:</em> it's a <em>temporary</em> role with <strong>fast automatic re-election</strong>; writes are low by design (coarse-grained locks); for higher write scale, <strong>shard the namespace across multiple consensus groups</strong>.</li>
+<li><strong>Quorum loss (≥ f+1 replicas down or partitioned) → unavailable.</strong> <em>Mitigation:</em> accept it (CP); place the 5 replicas in <strong>independent failure domains</strong> (racks/AZs) so simultaneous loss of a majority is rare; restore by recovering replicas from snapshot+log.</li>
+<li><strong>Thundering-herd watch fan-out (10K clients all watching "current leader" wake at once).</strong> <em>Mitigation:</em> <strong>coalesce/batch</strong> notifications from the leader; in election recipes have each contender watch only the <strong>next-lower</strong> sequential node (a chain), so one death wakes one watcher, not all.</li>
+<li><strong>Keepalive storm / false session expiries under a network blip.</strong> <em>Mitigation:</em> generous session TTL with jitter, renew at 1/3 TTL, and a <strong>grace period</strong> so a brief blip doesn't mass-expire sessions (which would release many locks at once).</li>
+<li><strong>Clock skew corrupting lease math.</strong> <em>Mitigation:</em> use leases for <strong>liveness only</strong>, never trust absolute clocks for <strong>correctness</strong> (fencing handles that); add a skew safety margin when waiting out the old master lease.</li>
+<li><strong>Cross-region latency inflating every commit.</strong> <em>Mitigation:</em> keep a cell <strong>regional</strong> (quorum among nearby replicas); <strong>federate</strong> cells and let clients use the nearest cell; replicate only summaries cross-region.</li>
+<li><strong>Snapshot/log-disk failure on a replica.</strong> <em>Mitigation:</em> it's just one of <code>N</code>; it recovers by re-fetching the latest snapshot + tailing the log from peers; the majority keeps serving meanwhile.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>First to break: the single leader's write throughput</strong> if locks become finer-grained/higher-rate. Evolve by <strong>partitioning the namespace across many consensus groups</strong> (each subtree owned by its own 5-replica Paxos/Raft group), so writes scale horizontally while each lock is still strongly consistent within its group. This is the standard move from "one Chubby cell" to "many cells."</li>
+<li><strong>More clients (caches are the real scaling lever):</strong> push <strong>longer read-leases</strong> and richer client caching so the leader sees even less read traffic; coalesce keepalives (proxy/aggregator tier batching heartbeats from many clients into fewer leader contacts).</li>
+<li><strong>Geo / multi-region:</strong> keep each <strong>cell regional</strong> for fast quorum; run <strong>multiple cells</strong> and let applications pick the nearest; for truly global coordination, layer a higher-level protocol on top of regional cells rather than stretching one quorum across continents (which would make every commit cross-region-slow).</li>
+<li><strong>Hot node (one key with huge watch fan-out or contention):</strong> convert busy-poll/contended access to <strong>sequential-node + watch-the-predecessor</strong> recipes (no herd), and if one node is a write hotspot, model it as a queue/lease handoff rather than a contended lock.</li>
+<li><strong>Stronger failure independence:</strong> spread the 5 replicas across <strong>separate power/network/AZ domains</strong>; add <strong>witness/learner</strong> replicas (vote but hold no data, or hold data but don't vote) to tune availability vs cost without slowing the quorum.</li>
+<li><strong>Observability for correctness:</strong> export lease/fencing metrics and alert on any <strong>token regression</strong> or split-brain indicator — at scale, the rare correctness bug is the one that matters most.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"Why do you need consensus at all — why not just a database row with a lock flag?"</strong> A single DB is a SPOF and doesn't give <strong>agreement under partition</strong>: two clients on either side of a partition could both read "unlocked." Consensus commits each decision to a <strong>majority</strong> so conflicting grants can't both succeed, and it survives minority failure with no data loss.</li>
+<li><strong>"Walk me through Raft/Paxos committing a lock."</strong> Client → leader; leader appends "lock X by S, token N" to its log and replicates; once a <strong>majority</strong> persist it, it's <strong>committed</strong>; leader applies it and replies with token N. If the leader dies mid-flight, the new leader (with the latest committed log) re-establishes state; uncommitted entries are safely discarded.</li>
+<li><strong>"How do you prevent two leaders (split-brain)?"</strong> Election needs a <strong>majority</strong>, and two leaders can't both have a majority. Plus a <strong>master lease</strong>: a new leader won't serve until the old lease is guaranteed <strong>expired</strong>, so there's never an overlap of two serving leaders. The minority side serves nothing.</li>
+<li><strong>"A lock holder GC-pauses past its lease, then writes — how is that safe?"</strong> It isn't, from the lock service alone — that's the classic trap. The fix is <strong>fencing tokens</strong>: the holder presents its monotonic token to the resource, which <strong>rejects any token lower than the max seen</strong>, so the paused holder's late write (older token) is fenced out.</li>
+<li><strong>"Why leases instead of holding the lock until release?"</strong> Because the holder can crash silently; a <strong>TTL + keepalive</strong> lets the service reclaim the lock by <strong>timeout</strong> without ever reaching the dead holder. We can't perfectly distinguish slow from dead, so we bound it with time and make correctness independent of that guess via fencing.</li>
+<li><strong>"How are reads so cheap if every write is a consensus round?"</strong> Reads aren't writes — clients <strong>cache</strong> node data under a <strong>read-lease</strong> and serve reads <strong>locally</strong>; the leader <strong>invalidates</strong> caches on change. Only cache misses / linearizable reads touch the leader. That's why one small group serves 100K clients.</li>
+<li><strong>"Why 5 replicas, not 3 or 7? Why odd?"</strong> 5 tolerates <strong>2</strong> failures (2f+1). Odd counts are optimal: 4 tolerates the same 1 as 3 but costs more; more replicas also <strong>slow</strong> the quorum, so we stay small and scale via caching/sharding.</li>
+<li><strong>"How do clients elect a leader using this?"</strong> Each creates an <strong>ephemeral + sequential</strong> node under <code>/election</code>; the <strong>lowest sequence</strong> wins; each loser <strong>watches the next-lower</strong> node and, on its deletion (holder died → ephemeral auto-removed), re-checks. This gives prompt, herd-free failover.</li>
+<li><strong>"What happens during a network partition?"</strong> The majority side keeps serving (it has quorum); the minority side <strong>refuses</strong> all mutations and linearizable reads (can't reach quorum) — we deliberately sacrifice availability there to never grant a conflicting lock (<strong>CP</strong>).</li>
+<li><strong>"How would you scale to millions of locks?"</strong> <strong>Partition the namespace</strong> across many independent consensus groups; each lock stays linearizable within its group, and total write throughput scales with the number of groups.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Phase</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–6 min</td>
+<td>Clarify</td>
+<td>Coarse vs fine-grained, lock semantics + auto-release, <strong>CP vs AP (pick CP)</strong>, read consistency, scale (clients vs writes), fencing expectation</td>
+</tr>
+<tr>
+<td>6–9 min</td>
+<td>FR/NFR</td>
+<td>Lock at-most-one-holder, linearizable mutations, 2f+1 fault tolerance, refuse-on-quorum-loss</td>
+</tr>
+<tr>
+<td>9–15 min</td>
+<td>Estimation</td>
+<td><strong>Low write QPS vs high keepalive/read</strong> (cache + lease), small in-RAM dataset, quorum latency, watch fan-out</td>
+</tr>
+<tr>
+<td>15–20 min</td>
+<td>API + high-level arch</td>
+<td>Sessions/keepalive, node tree, acquire→fencing token, watches; draw both diagrams; 5-replica consensus group</td>
+</tr>
+<tr>
+<td>20–25 min</td>
+<td>Walk write + read + failover paths</td>
+<td>Leader → log → majority commit → token; cached read + invalidation; leader death → election + lease expiry</td>
+</tr>
+<tr>
+<td>25–40 min</td>
+<td>Deep dive</td>
+<td>(A) Paxos/Raft, quorum/majority, master-lease split-brain prevention; (B) leases, GC-pause danger, <strong>fencing tokens</strong></td>
+</tr>
+<tr>
+<td>40–48 min</td>
+<td>Tradeoffs + failures</td>
+<td>CP choice, leader bottleneck, zombie holder, watch herd, false expirations, clock skew</td>
+</tr>
+<tr>
+<td>48–55 min</td>
+<td>Scale 10x</td>
+<td>Partition namespace into many groups, longer read-leases, regional cells + federation, herd-free election recipe</td>
+</tr>
+<tr>
+<td>55–60 min</td>
+<td>Probes</td>
+<td>Why consensus not a DB row, split-brain prevention, GC-pause + fencing, why 5/odd replicas, partition behavior</td>
+</tr>
+</tbody>
+</table></article></div></body></html>

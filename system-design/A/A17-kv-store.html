@@ -1,0 +1,374 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>A17 — Design a Key-Value Store / Distributed Database</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="index.html">&larr; All system-design questions</a><article class="doc"><h1>A17 — Design a Key-Value Store / Distributed Database</h1>
+<p>This is the canonical distributed-systems interview: build a horizontally-scalable, highly-available key-value store (think Dynamo / Cassandra / Bigtable lineage) that survives node, rack, and datacenter failure. Google asks it because it is the cleanest possible probe of first-principles distributed storage — there is nowhere to hide. The interviewer will push directly on CAP, partitioning, quorum (R + W &gt; N), replication, conflict resolution, and the storage engine. If you can reason these from scratch, you signal Staff; if you name-drop products, you signal L4.</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>Data model:</strong> Pure opaque-blob KV (<code>get(key) -&gt; bytes</code>), or do we need a column-family / wide-row model (sorted columns per key, range scans) like Bigtable/Cassandra? This single answer changes the storage engine and the API.</li>
+<li><strong>Access pattern:</strong> Point lookups only, or range scans over ordered keys? Range scans force order-preserving partitioning (or a Bigtable-style tablet model) instead of pure consistent hashing.</li>
+<li><strong>Consistency requirement:</strong> Is the caller OK with eventual consistency + read-repair (AP, Dynamo-style), or do they need linearizable/strongly-consistent reads (CP, Spanner/Bigtable-style with a consensus group)? This is THE fork in the design.</li>
+<li><strong>Read/write mix and value size:</strong> Read-heavy (caching layer) vs write-heavy (telemetry/event store)? Average and p99 value size (1 KB vs 1 MB) drives storage-engine and compaction choices.</li>
+<li><strong>Scale:</strong> How many keys, total bytes, and peak QPS? Single-region or multi-region (and if multi-region, is cross-region a hard latency budget or async replication)?</li>
+<li><strong>Durability / RPO:</strong> Can we lose the last few milliseconds of acknowledged writes on a crash, or must every ack survive (commit log fsync vs batched)?</li>
+<li><strong>Multi-tenancy &amp; isolation:</strong> One logical store or many namespaces with per-tenant quotas and noisy-neighbor isolation?</li>
+<li><strong>Transactions:</strong> Single-key atomicity only, or multi-key / cross-partition transactions (which pulls in 2PC or Spanner-style TrueTime)?</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> Whether you understand that "key-value store" is not one design but a <em>family</em> selected by two axes — (1) AP vs CP, and (2) hash-partitioned point lookups vs range-partitioned scans. A Staff candidate surfaces these axes in the first three minutes and <em>picks a point in the space on purpose</em>, stating the tradeoff out loud. I'll default to a Dynamo-style AP store with tunable consistency, because it most directly exercises quorum, vector clocks, hinted handoff, and Merkle trees — and I'll show the CP variant as an explicit alternative.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In scope:</strong>
+- <code>put(key, value)</code> and <code>get(key)</code> with configurable per-request consistency level (ONE / QUORUM / ALL).
+- <code>delete(key)</code> implemented as a tombstone (deletes must replicate like writes).
+- Automatic data partitioning across nodes; the cluster rebalances when nodes are added/removed.
+- Replication factor N (default 3) with replicas spread across failure domains (racks/AZs).
+- Tunable read/write quorum (R, W) with the R + W &gt; N option for read-your-writes.
+- Conflict detection and resolution for concurrent writes (vector clocks; last-write-wins as a fallback).
+- Failure handling: detect down nodes, keep serving (hinted handoff), and repair divergent replicas (read-repair + anti-entropy via Merkle trees).
+- Background compaction of the on-disk storage engine.</p>
+<p><strong>Out of scope (defer, state explicitly):</strong>
+- Secondary indexes / rich query language (we are KV, not SQL).
+- Multi-key ACID transactions and cross-partition 2PC (mention as the CP-variant extension).
+- Authn/Authz, billing, and full multi-tenancy quotas (assume a trusted internal mesh; add a gateway later).
+- Geo-replication conflict semantics beyond per-key vector clocks.</p>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>10 B keys, ~100 TB logical data, 1 M QPS aggregate (e.g., 700 K reads / 300 K writes). Must scale linearly by adding nodes.</td>
+</tr>
+<tr>
+<td>Latency</td>
+<td>p99 <code>get</code> &lt; 10 ms intra-region at QUORUM; p99 <code>put</code> &lt; 15 ms. Sub-ms is unrealistic once you cross the network for a quorum.</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td>99.99% for writes even during single-node and single-rack failure. AP default: stay writable under partition (Dynamo's "always writable" goal).</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td>Tunable. Default eventual with read-repair; R + W &gt; N gives strong-ish read-your-writes. CP mode available per-namespace via a consensus group.</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>11 nines effective via N=3 across AZs + per-node commit log fsync (or group-commit). RPO ≈ 0 with synchronous W≥2.</td>
+</tr>
+<tr>
+<td>Partition tolerance</td>
+<td>Mandatory — it is a distributed store; CAP forces us to trade C or A under partition, and we choose A by default.</td>
+</tr>
+<tr>
+<td>Elasticity</td>
+<td>Adding a node moves only ~K/N of the keyspace (consistent hashing), not a full reshuffle.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>Scale assumptions
+  keys                 = 10 billion
+  avg value            = 10 KB (incl. key + metadata overhead)
+  logical data         = 10e9 * 10 KB        = 100 TB
+  replication N        = 3
+  physical data        = 100 TB * 3          = 300 TB
+  + compaction headroom (~2x worst case LSM) =&gt; provision ~600 TB
+
+QPS
+  peak aggregate       = 1,000,000 QPS
+  reads (70%)          = 700,000 QPS
+  writes (30%)         = 300,000 QPS
+  each QUORUM read     touches R=2 replicas  =&gt; ~1.4 M internal read ops/s
+  each QUORUM write    touches W=2 (+N=3 send) =&gt; ~0.9 M internal write ops/s
+
+Per-node sizing (target ~10 TB usable + NVMe)
+  nodes for storage    = 600 TB / 10 TB      = 60 nodes (storage-bound)
+  nodes for QPS        = 1.4M+0.9M internal / ~50k ops/node ≈ 46 nodes
+  =&gt; ~64 nodes, round to 96 for headroom + AZ balance (32 per AZ x 3)
+
+Write throughput / commit log
+  300k writes/s * 10 KB                       = 3 GB/s ingest (logical)
+  * N=3 replication                            = 9 GB/s across cluster
+  per node (96)                                ≈ 94 MB/s sustained write — fine for NVMe
+
+Bandwidth
+  read egress  700k * 10 KB                    = 7 GB/s to clients
+  cross-AZ replication (W path)                ≈ 6 GB/s internal
+
+Cache / memtable memory
+  memtable per node ~2 GB before flush
+  bloom filters: 10b keys, ~10 bits/key       ≈ 12.5 GB total, ~130 MB/node
+  block cache (hot 1%): 1 TB / 96 nodes        ≈ 10 GB/node RAM
+</code></pre>
+<h2>5) API design</h2>
+<pre><code># Client-facing (any coordinator node can serve any key)
+put(key: bytes, value: bytes, opts{ W=QUORUM, vclock?=context }) -&gt; {version: vclock}
+get(key: bytes, opts{ R=QUORUM })                                -&gt; {value | [siblings], vclock}
+delete(key: bytes, opts{ W=QUORUM })                             -&gt; {version: vclock}  # writes a tombstone
+
+# get() may return SIBLINGS (multiple concurrent values) — caller resolves and writes back
+# with the merged vclock as context, the standard Dynamo shopping-cart pattern.
+
+# Internal node-to-node (gossip + replication mesh)
+coordinatorForward(key, op, value, vclock) -&gt; ack
+hintedHandoff(targetNode, key, value, vclock)            # store-and-forward when replica is down
+merkleTreeExchange(range) -&gt; rootHash                    # anti-entropy
+streamRange(range)                                       # bootstrap / repair a new replica
+gossip(heartbeat, ring-version, node-status)             # membership + failure detection
+</code></pre>
+<h2>6) Architecture — request &amp; data flow</h2>
+<p>THE CENTERPIECE. A KV store has no CDN or transcoding tier; the interesting layers are the <em>ring</em>, the <em>coordinator/replica fan-out</em>, and the <em>per-node storage engine (LSM)</em>. Both diagrams below are tailored to that.</p>
+<h3>(a) ASCII layered diagram</h3>
+<pre><code>                Clients / app servers (smart client OR thin client)
+                                |
+                                |  get(k)/put(k,v) + desired R/W
+                                v
+                   [ Request Router / Coordinator ]   any node; locates owners on the ring
+                                |
+                                |  consistent-hash(k) -&gt; primary + N-1 successors
+                                |  (replicas chosen across distinct AZs/racks)
+            +-------------------+--------------------+
+            |                   |                    |
+            v                   v                    v
+     [ Replica node 1 ]   [ Replica node 2 ]   [ Replica node 3 ]     N = 3, one per AZ
+      (AZ-a)               (AZ-b)               (AZ-c)
+            |  WRITE: append commit log -&gt; memtable; ack when W replicas ack
+            |  READ : serve from memtable/block-cache/SSTable; return value+vclock
+            v
+   ----------------- inside ONE node: the storage engine (LSM-tree) -----------------
+        write -&gt; [ Commit Log (WAL, fsync/group-commit) ]  durability first
+                          |
+                          v
+                    [ MemTable (sorted, in-RAM) ]  fast writes, recent data
+                          |  flush when full
+                          v
+            [ SSTable L0 ] [ SSTable L1 ] ... [ SSTable Ln ]   immutable, sorted on disk
+                  ^   each SSTable has a Bloom filter + sparse index
+                  |
+            [ Compaction ]  merges SSTables, drops tombstones/old versions, reclaims space
+   ---------------------------------------------------------------------------------
+
+   Cross-cutting control plane (no client traffic):
+     [ Gossip / Membership ] --- heartbeats, ring version, node up/down
+     [ Hinted Handoff ]       --- replica down? coordinator stashes a hint, replays on recovery
+     [ Anti-entropy ]         --- Merkle-tree range hashes compared between replicas -&gt; stream diffs
+     [ Read-repair ]          --- on a QUORUM read, if replicas disagree, push newest to stale ones
+</code></pre>
+<p><strong>Write path (W = QUORUM, N = 3):</strong> Client sends <code>put(k, v)</code> to any node, which becomes the <strong>coordinator</strong>. It hashes <code>k</code> on the consistent-hash ring to find the primary owner and the next N−1 distinct-AZ successors. It forwards the write (with an incremented <strong>vector clock</strong>) to all N replicas in parallel. Each replica appends to its <strong>commit log</strong> (WAL, durably) and updates its in-memory <strong>memtable</strong>, then acks. The coordinator returns success as soon as <strong>W = 2</strong> replicas ack — the 3rd completes asynchronously. If a target replica is down, the coordinator writes a <strong>hinted handoff</strong> to a substitute node and acks anyway (this is why the store stays writable under failure).</p>
+<p><strong>Read path (R = QUORUM):</strong> The coordinator fans the read to N replicas (or the R fastest), each serving from memtable → block cache → SSTables (Bloom filter avoids touching SSTables that can't contain the key). It waits for <strong>R = 2</strong> responses, compares their vector clocks: if one strictly dominates, it returns that value and fires <strong>read-repair</strong> to update the stale replica; if the clocks are <strong>concurrent</strong>, it returns <strong>siblings</strong> for the client to merge. Because R + W = 4 &gt; N = 3, the read and write quorums overlap on ≥1 node, guaranteeing a quorum read sees the latest quorum write.</p>
+<h3>(b) Mermaid flowchart</h3>
+<div class="mermaid">
+flowchart TD
+  client[Client / smart client] -->|get k / put k,v + R,W| coord[Coordinator node]
+  coord -->|consistent-hash k| ring{{Hash ring: primary + N-1 successors}}
+  ring --> r1[(Replica AZ-a)]
+  ring --> r2[(Replica AZ-b)]
+  ring --> r3[(Replica AZ-c)]
+
+  subgraph engine[Per-node storage engine - LSM]
+    wal[Commit Log / WAL] --> mem[MemTable in RAM]
+    mem -->|flush| l0[SSTable L0]
+    l0 --> ln[SSTables L1..Ln + Bloom + index]
+    ln --> comp[[Compaction: merge, drop tombstones]]
+  end
+  r1 --- engine
+  r2 --- engine
+  r3 --- engine
+
+  coord -. ack when W replicas ack .-> client
+  coord -. read-repair on divergence .-> r3
+  gossip[Gossip / membership] -. ring version, up/down .-> coord
+  hh[Hinted handoff] -. replica down -> stash + replay .-> r2
+  ae[Anti-entropy / Merkle trees] -. compare range hashes -> stream diffs .-> r1
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<p><strong>Logical model:</strong> <code>key (bytes) -&gt; { value (bytes), vector_clock, timestamp, tombstone? }</code>. Optionally a wide-row/column-family variant: <code>key -&gt; sorted map&lt;column, {value, ts}&gt;</code> to support range scans (Bigtable/Cassandra style).</p>
+<p><strong>Storage engine — LSM-tree (log-structured merge), justified from first principles:</strong>
+- The workload is <strong>write-heavy and append-friendly</strong>. A B-tree does in-place random writes (read-modify-write a page) — expensive on every update. An <strong>LSM</strong> turns every write into a sequential commit-log append + an in-RAM memtable insert, then flushes sorted <strong>SSTables</strong> sequentially. Sequential I/O is ~100× faster than random on disk and far kinder to SSDs (less write amplification per op, better endurance).
+- <strong>Reads</strong> check memtable → block cache → SSTables newest-to-oldest; a per-SSTable <strong>Bloom filter</strong> lets us skip SSTables that definitely don't hold the key, so a point read usually touches one SSTable + one disk seek.
+- <strong>Cost:</strong> read amplification (a key may live across several SSTables) and space amplification — both bounded by <strong>compaction</strong>.</p>
+<p><strong>Why not a single SQL primary:</strong> it doesn't shard or stay available under partition without bolting on the exact machinery (consistent hashing, quorum, gossip) we're building here. For pure KV at this scale, that machinery <em>is</em> the design.</p>
+<p><strong>Metadata / ring state:</strong> the membership ring and token assignments are small and must be consistent — store them via gossip with a versioned ring, or in a small CP coordination service (ZooKeeper/etcd-class) if we want strong membership.</p>
+<h2>8) Deep dive</h2>
+<h3>8a) Partitioning — consistent hashing with virtual nodes</h3>
+<p>Naive <code>hash(key) % N</code> remaps almost every key when N changes — catastrophic rebalancing. <strong>Consistent hashing</strong> maps both keys and nodes onto a ring (hash space, e.g., 0..2^64); a key is owned by the first node clockwise. Adding/removing a node moves only ~1/N of keys (the arc between neighbors), not the whole space.</p>
+<p>Problem: random placement creates <strong>uneven load</strong> and, when a node leaves, its entire load lands on one neighbor (hotspot). Fix with <strong>virtual nodes (vnodes)</strong> — each physical node owns many small tokens scattered around the ring. Benefits: (1) load smooths out (law of large numbers), (2) when a node dies its load spreads across <em>many</em> nodes, and (3) heterogeneous hardware is handled by giving beefier nodes more vnodes. Replicas for a key are the next N <strong>distinct physical nodes</strong> (skip vnodes of the same machine, and prefer distinct AZs) — this is the "preference list."</p>
+<h3>8b) Quorum, consistency, and conflict resolution</h3>
+<ul>
+<li><strong>Quorum math:</strong> with N replicas, choose R and W. <strong>R + W &gt; N</strong> guarantees the read set and write set overlap on at least one replica, so a quorum read observes the latest quorum-acknowledged write. Tuning: <code>W=N, R=1</code> = fast reads, slow/fragile writes; <code>W=1, R=N</code> = fast writes, must read all; <code>R=W=2, N=3</code> = balanced default.</li>
+<li><strong>Consistency model:</strong> even with R + W &gt; N, this is <em>not</em> linearizable (concurrent writers, no global order) — it's "strong enough" read-your-writes plus eventual convergence. For true linearizability you need a <strong>consensus group (Raft/Paxos)</strong> per partition (the CP variant): every write goes through a leader and a majority log — stronger guarantee, higher latency, unavailable when a majority is partitioned away.</li>
+<li><strong>Conflict resolution — vector clocks:</strong> each value carries a vector clock <code>{nodeId -&gt; counter}</code>. On write the coordinating replica increments its entry. Comparing two clocks: if every component of A ≤ B (and one &lt;), A <em>happened-before</em> B → keep B. If neither dominates, the writes are <strong>concurrent</strong> → keep both as <strong>siblings</strong> and let the application merge (e.g., set-union a shopping cart) or fall back to <strong>last-write-wins</strong> by timestamp (simple but can silently drop a write). Vector clocks can grow; cap them by pruning the oldest (node, counter) pairs with a timestamp.</li>
+</ul>
+<h3>8c) Failure detection &amp; repair — hinted handoff + Merkle anti-entropy</h3>
+<ul>
+<li><strong>Detection:</strong> nodes <strong>gossip</strong> heartbeats; a node not heard from within a φ-accrual threshold is marked down. Membership and ring version propagate via the same gossip.</li>
+<li><strong>Hinted handoff (transient failure):</strong> if replica X is down during a write, the coordinator stores the write plus a <em>hint</em> ("this belongs to X") on a stand-in node and still acks. When X recovers, the stand-in replays the hint to it. Keeps writes available and bounds the divergence window.</li>
+<li><strong>Read-repair (cheap, on the hot path):</strong> during a quorum read, if responding replicas disagree, push the newest version to the stale ones — repairs frequently-read keys for free.</li>
+<li><strong>Anti-entropy with Merkle trees (cold data):</strong> read-repair never touches keys nobody reads. Each replica builds a <strong>Merkle tree</strong> over its key-range (leaves = hashes of key blocks, parents = hashes of children). Two replicas compare <strong>root hashes</strong>; if equal, the whole range is in sync — done in one message. If not, they recurse only down the differing subtrees, so they exchange O(differences) data, not the whole dataset, and stream just the diverged keys. This is what heals replicas after long outages or bootstraps a replacement node.</li>
+</ul>
+<h3>8d) Compaction</h3>
+<p>SSTables accumulate; the same key may appear in many of them with old versions and tombstones. <strong>Compaction</strong> merges SSTables, keeps the newest version per key, and physically drops tombstones once they're past the GC grace period (must outlive hinted-handoff/anti-entropy windows, else a delete could resurrect). Strategies: <strong>size-tiered</strong> (merge similarly-sized SSTables — write-optimized, higher space amp, good for write-heavy) vs <strong>leveled</strong> (non-overlapping levels — read- and space-optimized, higher write amp, good for read-heavy). Choose per workload; it's the main knob trading write amp vs read amp vs space amp.</p>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Option A</th>
+<th>Option B</th>
+<th>Choice &amp; why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CAP under partition</td>
+<td>AP — always writable, eventual</td>
+<td>CP — linearizable, may reject writes</td>
+<td><strong>AP default</strong> (Dynamo lineage); CP per-namespace via consensus group when correctness &gt; availability</td>
+</tr>
+<tr>
+<td>Partitioning</td>
+<td>Consistent hashing (point lookups)</td>
+<td>Range/tablet (ordered scans)</td>
+<td><strong>Consistent hashing + vnodes</strong>; switch to range-partitioned tablets if scans are required</td>
+</tr>
+<tr>
+<td>Consistency tuning</td>
+<td>Strong (R+W&gt;N)</td>
+<td>Eventual (R=W=1)</td>
+<td><strong>Tunable per request</strong>; default R=W=2,N=3</td>
+</tr>
+<tr>
+<td>Conflict resolution</td>
+<td>Vector clocks (keep siblings)</td>
+<td>Last-write-wins (timestamp)</td>
+<td><strong>Vector clocks</strong> for correctness; LWW as a simple fallback per-namespace</td>
+</tr>
+<tr>
+<td>Storage engine</td>
+<td>LSM-tree</td>
+<td>B-tree</td>
+<td><strong>LSM</strong> — sequential writes, SSD-friendly, write-heavy workload</td>
+</tr>
+<tr>
+<td>Replication</td>
+<td>Sync to W, async to rest</td>
+<td>Fully sync to N</td>
+<td><strong>Sync W, async remainder</strong> — latency vs durability balance</td>
+</tr>
+<tr>
+<td>Compaction</td>
+<td>Size-tiered</td>
+<td>Leveled</td>
+<td>Workload-dependent; <strong>leveled for read-heavy, size-tiered for write-heavy</strong></td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Hot key / hot partition:</strong> a single celebrity key overloads its N replicas. Mitigate: add a per-coordinator <strong>request cache / read-through cache</strong> for hot keys; for hot <em>writes</em>, append-and-merge (split the key into shards client-side) or increase that key's replica count. Vnodes prevent hot <em>partitions</em> but not a single hot <em>key</em>.</li>
+<li><strong>Coordinator overload / SPOF:</strong> any node can coordinate, so there's no single SPOF, but a hot coordinator can saturate — mitigate with client-side ring awareness (smart client routes straight to a replica) and load-aware routing.</li>
+<li><strong>Thundering herd on recovery:</strong> a recovered node gets slammed by replayed hints + anti-entropy streams at once. Mitigate: throttle hint replay and bound concurrent Merkle repairs (stream-rate limits).</li>
+<li><strong>Compaction stall (write stall):</strong> if writes outrun flush+compaction, memtables back up and writes block. Mitigate: rate-limit/backpressure ingest, provision compaction I/O headroom, and alert on L0 SSTable count.</li>
+<li><strong>Tombstone resurrection:</strong> delete a key, an offline replica misses it, anti-entropy later "repairs" the live copy back. Mitigate: GC grace period &gt; max outage/repair window before purging tombstones.</li>
+<li><strong>Gossip convergence lag / split membership:</strong> slow gossip → coordinators route to wrong owners during topology change. Mitigate: versioned ring, hand off + retry on the new owner, and a short stabilization window when rebalancing.</li>
+<li><strong>Quorum unavailability under partition (CP mode):</strong> if a majority is unreachable, CP writes stall by design — surface clearly and let AP namespaces stay up.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>From 1 M to 10 M QPS / 1 PB:</strong> add nodes; consistent hashing makes this near-linear and only ~1/N of keys move per node added. Watch for <strong>gossip O(n²) chatter</strong> at thousands of nodes — move to a hierarchical/seed-based gossip or a separate membership service.</li>
+<li><strong>Multi-region:</strong> run a ring per region; replicate <strong>asynchronously</strong> across regions (region-local quorums for latency). Cross-region conflicts resolve via the same vector clocks. Offer a per-key choice of region-local (low latency, eventual) vs global quorum (high latency, stronger).</li>
+<li><strong>Read amplification at scale:</strong> if SSTable counts and read amp creep up, shift hot tables to leveled compaction and grow block cache; consider tiered storage (hot NVMe / warm SSD / cold object storage) for old SSTables.</li>
+<li><strong>CP demand grows:</strong> as more workloads need transactions, introduce per-partition <strong>Raft groups</strong> and, for cross-partition transactions, a Spanner-style approach (2PC over Paxos groups + TrueTime-style bounded-clock timestamps for external consistency).</li>
+<li><strong>Hot-key escalation:</strong> add an automatic hot-key detector that promotes runaway keys into a dedicated cache tier or auto-splits them.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"Why R + W &gt; N — prove it gives consistency."</strong> Pigeonhole: a write commits to ≥W replicas, a read contacts ≥R; if R + W &gt; N the two sets must intersect on ≥1 replica that has the latest write, so the read sees it. (Caveat: not linearizable under concurrent writers — only guarantees you observe the latest <em>acknowledged quorum</em> write.)</li>
+<li><strong>"Vector clocks vs last-write-wins?"</strong> LWW is simple but silently drops concurrent writes (clock skew can pick the wrong winner). Vector clocks detect causality and preserve concurrent updates as siblings for app-level merge — correctness over simplicity. Cost: metadata growth (prune old entries).</li>
+<li><strong>"How do you avoid rebalancing the whole ring when a node joins?"</strong> Consistent hashing: only the arc between the new token and its predecessor moves (~1/N). Vnodes spread even that across many sources, smoothing the transfer.</li>
+<li><strong>"What does compaction cost and when does it bite?"</strong> Write/space amplification; it competes with foreground I/O. Under write bursts it can stall writes (L0 pileup) — needs I/O headroom and backpressure. Tombstone GC grace must exceed repair windows.</li>
+<li><strong>"Make it strongly consistent."</strong> Per-partition Raft/Paxos: writes go through a leader + majority log, reads from the leader (or a lease/read-index). Gains linearizability; loses availability when a majority is partitioned away, and adds a round trip.</li>
+<li><strong>"How do Merkle trees save bandwidth?"</strong> Compare root hashes first — equal means in-sync in one message. On mismatch, recurse only into differing subtrees, so you transfer O(diff) keys instead of the entire range.</li>
+<li><strong>"A node was offline for an hour — how does it catch up?"</strong> Hinted handoff replays writes buffered during the outage; anti-entropy (Merkle) reconciles anything the hints missed; read-repair fixes hot keys on the fly.</li>
+<li><strong>"Single-region or multi — and the consistency implication?"</strong> Multi-region uses async cross-region replication with region-local quorums; cross-region reads are eventually consistent unless you pay for a global quorum. State the latency/consistency trade explicitly.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Phase</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–6 min</td>
+<td>Clarify</td>
+<td>Pin the two axes: AP vs CP, hash vs range. State you'll build AP/tunable Dynamo-style, note CP variant. Lock N=3, R=W=2 default.</td>
+</tr>
+<tr>
+<td>6–10 min</td>
+<td>FR / NFR</td>
+<td>put/get/delete + tunable consistency; targets: 1 M QPS, p99&lt;10 ms, 99.99%, 100 TB.</td>
+</tr>
+<tr>
+<td>10–14 min</td>
+<td>Estimation</td>
+<td>QPS read/write, 300 TB physical + compaction headroom, ~96 nodes, commit-log throughput.</td>
+</tr>
+<tr>
+<td>14–20 min</td>
+<td>High-level + API</td>
+<td>Draw the ring → coordinator → N replicas → per-node LSM. Walk read &amp; write quorum paths.</td>
+</tr>
+<tr>
+<td>20–38 min</td>
+<td>Deep dives</td>
+<td>(1) Consistent hashing + vnodes, (2) quorum R+W&gt;N + vector clocks + siblings, (3) hinted handoff + Merkle anti-entropy, (4) LSM + compaction.</td>
+</tr>
+<tr>
+<td>38–46 min</td>
+<td>Tradeoffs</td>
+<td>CAP choice, vector clocks vs LWW, sync-W/async-rest, leveled vs size-tiered.</td>
+</tr>
+<tr>
+<td>46–54 min</td>
+<td>Failure &amp; bottlenecks</td>
+<td>Hot keys, compaction stall, tombstone resurrection, thundering herd on recovery — each with a fix.</td>
+</tr>
+<tr>
+<td>54–60 min</td>
+<td>10x / wrap</td>
+<td>Multi-region async + region-local quorum, Raft per-partition for CP, tiered storage. Restate the AP/CP fork as the headline decision.</td>
+</tr>
+</tbody>
+</table></article></div></body></html>

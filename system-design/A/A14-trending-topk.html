@@ -1,0 +1,392 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>A14 — Design a trending hashtags / top-K system</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="index.html">&larr; All system-design questions</a><article class="doc"><h1>A14 — Design a trending hashtags / top-K system</h1>
+<p>A trending system answers <strong>"what are the K most-used hashtags (or terms, or items) right now?"</strong> over a firehose of billions of events per day, with answers that refresh every few seconds and reflect a <em>sliding time window</em>, not all-time totals. The hard part isn't the heap — it's that you cannot keep an exact counter per distinct key (there are hundreds of millions), so you lean on <strong>streaming sketches</strong> (Count-Min, heavy-hitters) and accept <em>approximate</em> counts to hit memory and latency budgets. Google asks this because it probes streaming aggregation at scale, the <strong>exact-vs-approximate</strong> tradeoff, sliding windows, and <strong>hot-partition / skew</strong> handling — all Staff-defining themes.</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>What are we ranking, and what's the "count"?</strong> Hashtags by raw usage? By <em>unique users</em> (dedup)? Weighted by engagement (likes/reshares)? Unique-user counting changes the sketch (Count-Min → HyperLogLog) entirely.</li>
+<li><strong>What window and refresh cadence?</strong> "Trending in the <strong>last 5 / 15 / 60 minutes</strong>, refreshed every <strong>few seconds</strong>"? Or daily top-K? Window size sets memory; refresh sets the serving architecture.</li>
+<li><strong>How big is K, and at what granularity?</strong> Top-50 global? Top-K <em>per country / per language / per topic</em>? Per-segment top-K multiplies the aggregation fan-out.</li>
+<li><strong>Scale of the firehose?</strong> I'll assume <strong>~1M events/sec average, ~5M/sec peak</strong>, with <strong>~10^8 distinct hashtags</strong> over a day but a heavy long tail (most appear a handful of times).</li>
+<li><strong>Exact or approximate?</strong> Is a ranking that's <em>approximately</em> right (±a few %, occasional rank swap deep in the list) acceptable? For trending, <strong>yes</strong> — and that unlocks sketches. Confirm the tolerance.</li>
+<li><strong>"Trending" = raw count or rate-of-change?</strong> Is it the highest <em>absolute</em> count, or the biggest <em>spike</em> vs baseline (velocity / acceleration)? Spike detection needs a baseline model, not just a top-K.</li>
+<li><strong>Read scale and latency?</strong> The trending list is read by millions of clients but is identical for everyone in a segment → highly cacheable. Target <strong>p99 &lt; 50–100 ms</strong>, served from cache, refreshed every few seconds.</li>
+<li><strong>Late / out-of-order events?</strong> Stream data arrives late. Do we use event-time windows with a watermark + grace period, or processing-time (simpler, slightly wrong at boundaries)?</li>
+<li><strong>Abuse / manipulation?</strong> Bots can spam a hashtag to fake-trend it. Do we dedup by user, rate-limit, or apply anomaly filters? (Often a separate trust layer, but worth flagging.)</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> they want to hear "I can't count every key exactly" <em>early</em>, then a clean path to <strong>Count-Min sketch + a top-K heap of heavy hitters</strong>, <strong>sharded aggregation with a merge step</strong>, and <strong>sliding windows via time-bucketed sketches</strong>. The differentiators are: (1) naming the approximate-vs-exact tradeoff and quantifying the memory it saves, (2) handling <strong>hot partitions</strong> (one celebrity hashtag overwhelming a shard) with key-salting/two-stage aggregation, and (3) getting sliding windows right with ring buffers rather than recomputing. Jumping to "a big heap" without the sketch is an L5 answer.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In scope</strong></p>
+<ul>
+<li>Ingest a high-volume event stream (each event ≈ {hashtag(s), user, ts, segment}).</li>
+<li>Maintain approximate counts over a <strong>sliding window</strong> (e.g. trailing 5/15/60 min).</li>
+<li>Serve <strong>top-K</strong> trending hashtags, globally and per segment (country/language), refreshed every few seconds.</li>
+<li>Support both <strong>raw-count</strong> and <strong>unique-user</strong> counting modes.</li>
+<li>Optionally rank by <strong>velocity</strong> (spike vs baseline), not just absolute count.</li>
+</ul>
+<p><strong>Out of scope (defer)</strong></p>
+<ul>
+<li>The full social graph / post storage / timeline delivery — we consume the firehose, we don't own it.</li>
+<li>Personalized/ranked trending per individual user (this is segment-level).</li>
+<li>Deep anti-abuse / bot classification (a trust signal we <em>consume</em>; flag it, don't build it).</li>
+<li>Historical analytics / arbitrary OLAP over hashtag counts (offline warehouse job).</li>
+</ul>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>~1M events/sec avg, ~5M/sec peak; ~10^8 distinct keys/day; top-K for ~10^2–10^3 segments.</td>
+</tr>
+<tr>
+<td>Ingest latency</td>
+<td>Event reflected in trending within <strong>few seconds</strong> (pipeline + refresh).</td>
+</tr>
+<tr>
+<td>Read latency</td>
+<td><strong>p99 &lt; 50–100 ms</strong> — served from cache; list is identical per segment, so cache hit rate is ~100%.</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td><strong>99.9–99.99%</strong> reads (cached, degrade to last-known-good list); ingest can tolerate brief lag.</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td><strong>Eventual / approximate</strong> — trending is inherently fuzzy; bounded staleness (≤ refresh interval) is fine.</td>
+</tr>
+<tr>
+<td>Accuracy</td>
+<td>Approximate counts within ~±a few %; top-K membership correct for the genuinely-popular; deep-tail rank swaps acceptable.</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>Stream is replayable (retained log); sketches are reconstructible, so per-node loss is recoverable, not catastrophic.</td>
+</tr>
+<tr>
+<td>Cost</td>
+<td>Memory-bounded by sketches, not by per-key counters — this is the whole point.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>INGEST
+  1,000,000 events/sec avg, 5,000,000/sec peak.
+  Each event ~200 B (ids + hashtags + ts) -&gt; 1M*200B = 200 MB/s avg, ~1 GB/s peak on the bus.
+
+WHY NOT EXACT COUNTERS
+  10^8 distinct keys * (key ~40 B + 8 B count) ≈ 10^8 * 48 B ≈ 4.8 GB per window per replica,
+  and that's PER time bucket if we slide -&gt; tens of GB. Multiply by per-segment -&gt; blows up.
+  -&gt; use a sketch with FIXED memory independent of cardinality.
+
+COUNT-MIN SKETCH SIZING (per window bucket, per shard)
+  width w = e/eps, depth d = ln(1/delta).
+  Target eps = 0.1% of total count N, delta = 0.1%:
+    w = e/0.001 ≈ 2718,  d = ln(1000) ≈ 6.9 -&gt; 7
+  cells = w*d ≈ 2718*7 ≈ 19,026 counters * 8 B ≈ 152 KB PER SKETCH.
+  -&gt; a few hundred KB per (bucket, shard). Compare to 4.8 GB exact: ~30,000x smaller.
+  Memory is INDEPENDENT of the 10^8 distinct keys — that's the lever.
+
+SLIDING WINDOW (ring of buckets)
+  60-min window, 1-min buckets -&gt; 60 sketches per shard ≈ 60 * 152 KB ≈ 9 MB per shard. Trivial.
+  Slide = drop oldest bucket, add new -&gt; O(1), no recompute.
+
+TOP-K HEAP (heavy hitters)
+  Track candidate top-K (say K=1000 to be safe, return top-50) per shard:
+    1000 * (40 B key + 8 B count) ≈ 48 KB per shard. Negligible.
+
+UNIQUE-USER MODE (HyperLogLog)
+  HLL ~12 KB gives ~2% error on cardinality, for ANY number of users. One HLL per (key,bucket)
+  is too many; instead HLL per candidate heavy-hitter only -&gt; bounded by K.
+
+READS
+  Millions of clients, but list per segment is identical -&gt; serve from cache/CDN.
+  ~10^3 segments * one small JSON (top-50) ≈ tiny; refreshed every few seconds.
+  Read QPS could be 100K+ but ~100% cache hit -&gt; backend sees only the refresh writes.
+</code></pre>
+<h2>5) API design</h2>
+<pre><code># Ingest (internal, from the firehose)
+publish(event{ hashtags[], user_id, ts, segment })            # onto partitioned stream
+
+# Query (clients / services)
+GET /v1/trending?segment={global|country|lang}&amp;window=5m&amp;k=50
+    -&gt; { window, as_of_ts, items:[ {tag, approx_count, rank, velocity} ... ] }
+
+GET /v1/trending/{tag}?segment=...&amp;window=15m
+    -&gt; { approx_count, rank, first_seen_ts, velocity }
+
+# Admin / ops
+GET /v1/debug/sketch?segment=...&amp;window=...   -&gt; sketch fill stats, error bounds
+POST /v1/exclude { tag }                       -&gt; suppress (spam/abuse) from results
+</code></pre>
+<h2>6) Architecture — request &amp; data flow</h2>
+<p><strong>(a) ASCII layered request/data flow</strong></p>
+<pre><code>        Event producers (post/comment/share services)  — the FIREHOSE
+                       |
+                       |  ~1M-5M events/sec, each {hashtags[], user, ts, segment}
+                       v
+        +==================================================================+
+        |   INGEST BUS  (partitioned log, partition by hashtag-hash)       |  replayable, ordered/part.
+        |   key-salt hot tags across sub-partitions (see hot-partition fix)|
+        +==================================================================+
+             |              |              |            (fan-out by partition)
+             v              v              v
+        [ Aggregator   [ Aggregator   [ Aggregator  ]   STATELESS-ish stream workers
+          shard 0  ]     shard 1  ]     shard N  ]      per shard holds:
+             |              |              |              - ring of time-bucketed
+             |              |              |                COUNT-MIN sketches (sliding window)
+             |              |              |              - local top-K min-heap (heavy hitters)
+             |              |              |              - HLL per candidate (unique-user mode)
+             |  partial top-K + sketch     |
+             +-----------+--+--------------+
+                         v
+              +=====================================+
+              |   MERGE / GLOBAL AGGREGATOR         |  every few seconds:
+              |   - sum Count-Min sketches (additive)|  merge partials -&gt; global sketch
+              |   - merge per-shard heaps -&gt; top-K   |  per segment (global, per country, ...)
+              |   - compute velocity vs baseline     |
+              +=====================================+
+                         |
+                         |  publish materialized top-K lists (small JSON per segment)
+                         v
+              +=====================================+        +===========================+
+              |   SERVING STORE (KV / cache)        |&lt;-------|  Baseline store (EWMA/      |
+              |   &quot;trending:{segment}:{window}&quot;     |        |  history for velocity)      |
+              +=====================================+        +===========================+
+                         ^
+        GET trending     |  (~100% cache hit; list identical per segment)
+                         |
+        [ CDN / Edge cache ]  &lt;----  Clients (web / mobile / API)
+</code></pre>
+<p><strong>Read path.</strong> A client calls <code>GET /trending?segment&amp;window&amp;k</code>. Because the answer is <strong>identical for everyone in a segment</strong>, it's served straight from the <strong>CDN/edge cache</strong> or the <strong>serving KV</strong> — essentially 100% cache hit, p99 well under 100 ms. The list is just a small precomputed JSON ("trending:US:5m") refreshed every few seconds by the merge stage. The read path touches no sketch and no stream — all the heavy lifting already happened upstream.</p>
+<p><strong>Write/ingest path.</strong> Producers emit events to the <strong>partitioned ingest bus</strong>, partitioned by <code>hash(hashtag)</code> so all events for a tag land on one shard (with <strong>salting for hot tags</strong>, see deep dive). Each <strong>Aggregator shard</strong> maintains a <strong>ring of time-bucketed Count-Min sketches</strong> (one per minute, say) for its slice of keys, plus a <strong>local top-K min-heap</strong> of heavy hitters it has seen. The <strong>sliding window</strong> is just "sum the last W buckets"; advancing the window drops the oldest bucket — O(1). Every few seconds the <strong>Merge/Global aggregator</strong> pulls each shard's <strong>partial sketch + partial heap</strong>, exploits the fact that <strong>Count-Min sketches are additive</strong> (cell-wise sum) and <strong>heaps merge</strong> by union-then-top-K, computes <strong>velocity</strong> against a baseline store, and writes the materialized top-K per segment to the serving store. This two-stage (shard → merge) design is what keeps it horizontally scalable and hot-partition-resistant.</p>
+<p><strong>(b) Mermaid flowchart</strong></p>
+<div class="mermaid">
+flowchart TD
+  prod[Event producers - firehose] -->|hashtags, user, ts, segment| bus[[Ingest bus - partitioned by hashtag-hash]]
+
+  bus --> a0[Aggregator shard 0]
+  bus --> a1[Aggregator shard 1]
+  bus --> aN[Aggregator shard N]
+
+  subgraph SHARD[Per-shard state]
+    cms[(Ring of time-bucketed Count-Min sketches)]
+    heap[/Local top-K min-heap/]
+    hll[(HLL per candidate - unique users)]
+  end
+  a0 --- SHARD
+  a1 --- SHARD
+  aN --- SHARD
+
+  a0 -->|partial sketch + heap| merge
+  a1 -->|partial sketch + heap| merge
+  aN -->|partial sketch + heap| merge
+
+  merge[Merge / global aggregator - sum sketches, merge heaps, velocity] --> store[(Serving KV: trending:segment:window)]
+  base[(Baseline store - EWMA history)] --> merge
+  store --> cdn[CDN / edge cache]
+  cdn -->|GET trending| clients[Clients]
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<p><strong>In-stream state (the heart) — sketches in worker memory, not a DB.</strong></p>
+<pre><code>Count-Min sketch  : int[d][w] counters, per (shard, time-bucket); additive across shards.
+Sliding window    : ring buffer of W sketches (e.g. 60 x 1-min); window-sum = elementwise add.
+Top-K heap        : min-heap of (count, tag), size ~K..K*10 candidates per shard.
+HyperLogLog       : per candidate heavy-hitter, for unique-user counts (~12 KB, ~2% error).
+</code></pre>
+<p>These live in worker RAM because access is per-event mutation at millions/sec — a database round-trip per event is impossible. They're <em>reconstructible</em> from the replayable bus, so memory loss isn't data loss.</p>
+<p><strong>Serving store — small KV / cache.</strong></p>
+<pre><code>key   : trending:{segment}:{window}        e.g. trending:global:5m
+value : [ {tag, approx_count, rank, velocity}, ... ]   (top-K JSON, a few KB)
+</code></pre>
+<p>A simple KV/cache (Redis-shaped) fronted by a CDN. The entire serving surface is a few thousand tiny keys refreshed every few seconds — trivially cacheable, trivially replicated.</p>
+<p><strong>Baseline store — for velocity.</strong> Per-tag <strong>EWMA</strong> of recent counts (exponentially-weighted moving average) so we can compute spike = current/baseline. Compact time-series in a KV or lightweight TSDB.</p>
+<p><strong>Ingest bus — partitioned, replayable log.</strong> Partitioned by <code>hash(tag)</code> for locality; retained so we can replay/rebuild sketches and recover from worker failure.</p>
+<p>Why <strong>not</strong> an exact per-key store: §4 shows 10^8 keys × multiple buckets × multiple segments is tens of GB and grows with cardinality. Count-Min gives <strong>fixed memory independent of cardinality</strong> with a provable error bound — the core first-principles trade.</p>
+<h2>8) Deep dive</h2>
+<h3>Deep dive A — Count-Min sketch + heavy-hitters + sliding windows</h3>
+<p><strong>Count-Min, precisely.</strong> A 2-D array of counters <code>C[d][w]</code> with d independent hash functions. To <strong>add</strong> a key: for each row i, increment <code>C[i][ h_i(key) % w ]</code>. To <strong>estimate</strong> a key's count: take <code>min over i of C[i][ h_i(key)]</code>. Collisions only ever <em>inflate</em> a counter, so Count-Min <strong>overestimates, never underestimates</strong> — taking the min cancels most of the inflation. Error is bounded: with <code>w=e/eps, d=ln(1/delta)</code>, the estimate is within <code>eps*N</code> of true with probability <code>1-delta</code>. At eps=0.1% that's ~152 KB for the whole sketch (§4) versus 4.8 GB exact — the memory win is ~30,000×.</p>
+<p><strong>Heavy hitters via a paired heap.</strong> A sketch alone can't <em>enumerate</em> the top keys (it's not iterable). So each shard keeps a <strong>min-heap of candidate heavy hitters</strong>: when a key's sketch-estimate exceeds the heap's min, insert/update it; evict the smallest. This is the classic "Space-Saving / sketch + heap" combo — the sketch gives O(1) approximate counts, the heap gives O(log K) maintenance of the top set. We keep K*~10 candidates to avoid prematurely evicting a tag that's about to spike.</p>
+<p><strong>Sliding windows without recompute.</strong> Naively recomputing the window every refresh is wasteful. Instead, a <strong>ring buffer of bucketed sketches</strong> (e.g. 60 one-minute Count-Min sketches). The current window count for a key = <strong>sum of its estimates across the active buckets</strong> (sketches are additive). Advancing time = <strong>drop the oldest bucket, allocate a fresh one</strong> — O(1), no historical recompute. This gives a true sliding window cheaply; the granularity (bucket size) trades freshness for memory.</p>
+<p><strong>Unique-user mode.</strong> Raw Count-Min counts <em>events</em>, so a bot posting a tag 10^6 times fakes a trend. For <em>unique users</em> we attach a <strong>HyperLogLog</strong> to each candidate heavy-hitter (HLL estimates distinct cardinality in ~12 KB at ~2% error, mergeable across shards). We only pay HLL for the bounded candidate set, not for all 10^8 keys.</p>
+<h3>Deep dive B — Sharded aggregation, merge, and hot partitions</h3>
+<p><strong>Two-stage aggregation.</strong> Partition the firehose by <code>hash(tag)</code> so each aggregator owns a disjoint key-space and maintains <em>local</em> sketches + heap. Every few seconds a <strong>merge stage</strong> combines partials: <strong>sum the Count-Min sketches cell-wise</strong> (valid because they share dimensions/hash functions) into a global sketch, and <strong>union the per-shard heaps</strong> then take the global top-K. This map-reduce shape scales linearly: add aggregators as the firehose grows.</p>
+<p><strong>The hot-partition problem (the crux).</strong> A single celebrity/breaking-news hashtag can be 10–30% of all events. With pure <code>hash(tag)</code> partitioning, <em>all</em> of it lands on <strong>one</strong> aggregator → that shard melts while others idle. Fixes:
+- <strong>Key salting / fan-out for hot keys:</strong> detect a hot tag (its local rate crosses a threshold) and <strong>split it across S sub-partitions</strong> by appending a salt <code>(tag, salt∈[0,S))</code> to the partition key. The S partial counts for that tag are <strong>summed back at the merge stage</strong>. This spreads a single hot key's load across S workers — the standard skew remedy.
+- <strong>Two-level pre-aggregation:</strong> a thin <strong>local combiner</strong> at the producer/edge batches and pre-counts within a short window before publishing, so a hot tag arrives at the bus as one "tag×N" message instead of N messages — slashing event volume for the hottest keys (a combiner step, like map-side combine).
+- <strong>Adaptive repartitioning:</strong> monitor per-shard load; when a shard is hot, the controller raises its salt factor S; when it cools, lower it. The salt count is dynamic, not fixed.</p>
+<p><strong>Late / out-of-order events.</strong> Stream events arrive late. Use <strong>event-time bucketing with a watermark + small grace period</strong>: an event timestamped for bucket t but arriving slightly late still updates bucket t until the watermark passes t+grace, after which t is sealed. This keeps window boundaries accurate without waiting forever; we accept that very-late events are dropped (they don't matter for "trending now").</p>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Option A</th>
+<th>Option B</th>
+<th>Choice &amp; why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Counting</td>
+<td>Exact per-key map</td>
+<td>Count-Min sketch</td>
+<td><strong>Count-Min</strong> — fixed memory independent of 10^8 cardinality; bounded overestimate; ~30,000× smaller.</td>
+</tr>
+<tr>
+<td>Top-K extraction</td>
+<td>Scan sketch (can't)</td>
+<td>Sketch + candidate heap</td>
+<td><strong>Sketch + heap</strong> — sketch isn't iterable; heap maintains heavy hitters in O(log K).</td>
+</tr>
+<tr>
+<td>Window</td>
+<td>Recompute each refresh</td>
+<td>Ring of bucketed sketches</td>
+<td><strong>Ring buffer</strong> — O(1) slide via drop-oldest/add-new; additive sketches make summing cheap.</td>
+</tr>
+<tr>
+<td>Aggregation</td>
+<td>Single global counter</td>
+<td>Sharded + merge (map-reduce)</td>
+<td><strong>Sharded + merge</strong> — linear scale; sketches sum, heaps union.</td>
+</tr>
+<tr>
+<td>Hot key</td>
+<td>Plain hash partition</td>
+<td>Salt/fan-out + combiner</td>
+<td><strong>Salt + combiner</strong> — spread a celebrity tag across S sub-partitions; pre-combine at source.</td>
+</tr>
+<tr>
+<td>Time semantics</td>
+<td>Processing-time</td>
+<td>Event-time + watermark</td>
+<td><strong>Event-time + grace</strong> — accurate window boundaries; bounded wait.</td>
+</tr>
+<tr>
+<td>Unique users</td>
+<td>HLL per key</td>
+<td>HLL per candidate only</td>
+<td><strong>Per candidate</strong> — HLL only for the bounded heavy-hitter set, not 10^8 keys.</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td>Strong</td>
+<td>Eventual/approximate</td>
+<td><strong>Eventual</strong> — trending is inherently fuzzy; staleness ≤ refresh interval is fine.</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Hot partition (celebrity tag).</strong> One tag dominates → its shard saturates. <em>Mitigation:</em> salt/fan-out across S sub-partitions + sum at merge; producer-side combiner pre-aggregates; adaptive salt factor.</li>
+<li><strong>Sketch saturation / error blow-up.</strong> If total volume N spikes far beyond design, eps<em>N error grows and the ranking gets noisy. </em>Mitigation:* size sketches for peak; monitor fill/error bounds; the heap protects top-K membership even when deep-tail counts are noisy.</li>
+<li><strong>Merge stage as a bottleneck/SPOF.</strong> All partials funnel through merge. <em>Mitigation:</em> shard the merge <strong>per segment</strong> (global, per-country independently); merge is cheap (sum small sketches + union small heaps); run replicas with leader election.</li>
+<li><strong>Thundering herd on reads during a breaking event.</strong> Everyone refreshes trending at once. <em>Mitigation:</em> the list is one cached object per segment → CDN absorbs it; serve last-known-good if the refresh stalls.</li>
+<li><strong>Worker loss → lost in-memory sketches.</strong> <em>Mitigation:</em> sketches are reconstructible by <strong>replaying</strong> the retained bus from the window start; checkpoint sketches periodically so replay is short. A lost shard self-heals.</li>
+<li><strong>Abuse / fake trending (bots).</strong> Coordinated spam fakes a spike. <em>Mitigation:</em> unique-user (HLL) mode instead of raw counts; rate-limit per user; velocity model flags implausible acceleration; an exclude-list suppresses confirmed abuse.</li>
+<li><strong>Stale window at boundaries (late data).</strong> <em>Mitigation:</em> watermark + grace period; accept dropping pathologically-late events.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>10M+ events/sec.</strong> Add aggregator shards (linear), push <strong>more pre-aggregation to the edge</strong> (producer-side combiners) so the bus carries counts, not raw events. The bus partitioning scales horizontally.</li>
+<li><strong>More segments (per-city, per-topic, per-language × country).</strong> The per-segment merge fan-out is the new cost. <strong>Compute coarse segments from fine ones</strong> (sum city sketches → country, because sketches are additive) instead of independent pipelines — a roll-up hierarchy.</li>
+<li><strong>Tighter freshness (sub-second trending).</strong> Shrink bucket granularity and refresh cadence; move merge to continuous streaming rather than periodic. Watch the error/memory tradeoff as buckets shrink.</li>
+<li><strong>Richer ranking (velocity, personalization).</strong> Velocity is already in; personalization breaks the "one list per segment" cache win, so keep it as a <em>re-rank</em> over a cached candidate set rather than per-user pipelines.</li>
+<li><strong>Exact counts demanded for top items.</strong> Keep the sketch for <em>discovery</em> of heavy hitters, then maintain <strong>exact counters only for the bounded candidate set</strong> — best of both: approximate to find candidates, exact for the few that matter.</li>
+<li><strong>What breaks first:</strong> hot partitions for viral tags (handle via salting/combiner) and the per-segment merge fan-out (handle via roll-up hierarchy). Sketch memory stays flat with cardinality — that's the design's durability.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"Why can't you just keep a count per hashtag?"</strong> 10^8 distinct keys × multiple time buckets × multiple segments is tens of GB and <em>grows with cardinality</em>. Count-Min gives <strong>fixed memory with a provable error bound</strong> (~152 KB/sketch vs 4.8 GB exact) — that's the unlock.</li>
+<li><strong>"How does Count-Min avoid undercounting?"</strong> Collisions only ever <em>increment</em> extra counters, so every cell is an overestimate; taking the <strong>min</strong> across d rows cancels most collisions. It overestimates, never underestimates — bounded by eps*N w.h.p.</li>
+<li><strong>"The sketch can't list the top keys — how do you get top-K?"</strong> Pair it with a <strong>min-heap of candidate heavy hitters</strong>: promote a key when its estimate beats the heap min, evict the smallest. Sketch for counts, heap for enumeration.</li>
+<li><strong>"Sliding window without recomputing every second?"</strong> A <strong>ring of time-bucketed sketches</strong>; window = sum of active buckets (additive); slide = drop oldest + add new, O(1).</li>
+<li><strong>"One hashtag is 20% of all traffic — what happens?"</strong> With plain hashing, one shard melts. I <strong>salt the hot key across S sub-partitions</strong> and sum at merge, and add a <strong>producer-side combiner</strong> so it arrives pre-aggregated. Salt factor adapts to load.</li>
+<li><strong>"How do you stop bots from faking a trend?"</strong> Switch to <strong>unique-user counting with HyperLogLog</strong> per candidate (a bot's 10^6 posts count as ~1 user), plus rate limits and a velocity/anomaly filter.</li>
+<li><strong>"A worker dies mid-window — do you lose data?"</strong> No — sketches are <strong>reconstructible by replaying</strong> the retained bus from the window start; periodic checkpoints bound replay time.</li>
+<li><strong>"Approximate vs exact — when is exact required?"</strong> Trending tolerates approximation. If exact counts are needed for the <em>displayed</em> items, keep exact counters only for the bounded candidate set discovered by the sketch.</li>
+<li><strong>"How fresh is the list, and how do you serve millions of readers?"</strong> Refreshed every few seconds; the list is <strong>identical per segment</strong>, so it's one cached object per segment behind a CDN — ~100% cache hit, p99 &lt; 100 ms.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Focus</th>
+<th>What to land</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–6 min</td>
+<td>Clarify</td>
+<td>Count of what (raw vs unique-user); window + refresh; K and per-segment; approximate OK.</td>
+</tr>
+<tr>
+<td>6–10 min</td>
+<td>FR / NFR</td>
+<td>top-K per segment over sliding window; eventual/approximate; cached reads.</td>
+</tr>
+<tr>
+<td>10–16 min</td>
+<td>Estimation</td>
+<td>Why exact fails (tens of GB, grows with cardinality); Count-Min ~152 KB; ring = 9 MB/shard.</td>
+</tr>
+<tr>
+<td>16–22 min</td>
+<td>API + high-level arch</td>
+<td>Ingest bus → sharded aggregators → merge → serving cache → CDN; draw it.</td>
+</tr>
+<tr>
+<td>22–40 min</td>
+<td>Deep dive</td>
+<td>Count-Min (overestimate→min), sketch+heap heavy hitters, ring-buffer sliding window, HLL unique-user.</td>
+</tr>
+<tr>
+<td>40–48 min</td>
+<td>Hot partition</td>
+<td>Salting/fan-out + sum at merge, producer-side combiner, adaptive salt.</td>
+</tr>
+<tr>
+<td>48–54 min</td>
+<td>Tradeoffs / failures</td>
+<td>Approximate vs exact; worker loss → replay; merge SPOF → per-segment shard; abuse → HLL+velocity.</td>
+</tr>
+<tr>
+<td>54–60 min</td>
+<td>Scale 10×</td>
+<td>Edge pre-aggregation; segment roll-up hierarchy (sketches sum); exact counters for candidates only.</td>
+</tr>
+</tbody>
+</table></article></div></body></html>

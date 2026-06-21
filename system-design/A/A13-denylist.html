@@ -1,0 +1,380 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>A13 — Design a distributed denylist / blocking system</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="index.html">&larr; All system-design questions</a><article class="doc"><h1>A13 — Design a distributed denylist / blocking system</h1>
+<p>A denylist answers one question billions of times a day: <strong>"is this entity (URL, IP, user-id, hash, token) blocked?"</strong> It is a read-dominated, latency-critical lookup with a long-tail correctness requirement — a freshly added malicious entry must propagate globally in seconds, yet a stale "allow" for a known-bad entity is a security incident. Google asks this because it forces you to reason about the <strong>read/write asymmetry</strong>, probabilistic data structures (Bloom filters) as a first-class front layer, and the <strong>consistency-vs-availability</strong> call when a region is partitioned: do you fail open or fail closed?</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>What is being blocked, and what is the key?</strong> Phishing/malware URLs, spam sender IPs, abusive account-ids, leaked-credential hashes, or revoked auth tokens? The key shape (short int vs long URL vs 32-byte hash) drives storage and the Bloom-filter sizing.</li>
+<li><strong>Who reads it, and where from?</strong> Is the lookup on the serving hot path (every web request / every email / every API call) inside our own data centers, or an external API for partners? In-DC means we can colocate a replica; external means edge + auth + rate-limit.</li>
+<li><strong>Read/write mix and absolute scale?</strong> I'll assume <strong>~10M QPS reads, ~1–10K writes/sec</strong> (additions + a smaller stream of removals/expirations). Reads dominate by ~1000:1 — that asymmetry is the whole design.</li>
+<li><strong>Propagation SLO for a new entry?</strong> "Newly blocked must be enforced everywhere within <strong>N seconds</strong>." Is N = 1s (security-grade), 10s, or 5min? This sets whether we push via a fan-out bus or rely on short-TTL polling.</li>
+<li><strong>Latency budget for a lookup?</strong> I'll target <strong>p99 &lt; 1–2 ms</strong> for an in-memory/Bloom answer, because we sit inline on a request that itself has a tight budget.</li>
+<li><strong>Consistency requirement on each direction?</strong> Adding a block is safety-critical → must be <strong>durable + fast-propagating</strong>. Removing a block (un-blocking) is usually less urgent and can lag. Asymmetric consistency is a real lever.</li>
+<li><strong>False-positive tolerance?</strong> With a Bloom front, some allowed entities will be flagged. Is a false "blocked" acceptable if we then do a confirming exact lookup, or is even a transient false-block unacceptable (then Bloom is only a negative-cache)?</li>
+<li><strong>Failure posture — fail open or fail closed?</strong> If the denylist backend is unreachable, do we <em>allow</em> traffic (availability-first, e.g. ad serving) or <em>deny</em> it (safety-first, e.g. malware gating)? This is the single most important product question.</li>
+<li><strong>Entry lifecycle?</strong> TTL-based auto-expiry, manual revocation, audit trail / who-added-what for compliance?</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> they want to see that you recognize this as a <em>read-path</em> problem first (Bloom filter + local replicas), a <em>propagation</em> problem second (push bus vs pull), and a <em>CAP</em> problem third (fail-open vs fail-closed under partition). Candidates who jump straight to "a Redis cluster" miss that the crux is the 1000:1 read skew and the false-positive tradeoff. Naming the fail-open/fail-closed decision <em>unprompted</em> is a strong Staff signal.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In scope</strong></p>
+<ul>
+<li><code>isBlocked(key)</code> — sub-millisecond membership test on the serving path, globally available.</li>
+<li><code>block(key, reason, ttl)</code> — add an entry; must propagate to all regions within the SLO and be durable.</li>
+<li><code>unblock(key)</code> — remove an entry (tombstone), eventually consistent is acceptable.</li>
+<li>TTL / auto-expiry of entries; bulk import (e.g. a feed of 10M known-bad hashes).</li>
+<li>Multi-region, low-latency reads with local replicas.</li>
+<li>Audit log of mutations (who/what/when/why) for review and rollback.</li>
+</ul>
+<p><strong>Out of scope (defer)</strong></p>
+<ul>
+<li><em>Deciding</em> what should be blocked (the abuse-detection / ML classifier that feeds us) — we are the enforcement substrate, not the policy engine.</li>
+<li>Per-user allow-list overrides / complex policy evaluation (a separate policy service composes on top).</li>
+<li>Rich querying / analytics over the denylist (offline warehouse job).</li>
+<li>Appeals workflow / human review UI.</li>
+</ul>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>~10M read QPS global; 1–10K writes/sec; denylist of 10^8–10^9 entries.</td>
+</tr>
+<tr>
+<td>Read latency</td>
+<td><strong>p99 &lt; 1–2 ms</strong> — lookup is inline on a hot request; mostly answered from in-process Bloom + local cache, zero cross-region hops on the happy path.</td>
+</tr>
+<tr>
+<td>Propagation latency</td>
+<td>New <code>block</code> enforced in <strong>all regions ≤ N s</strong> (target N = 1–5 s) via push bus; falling back to short-TTL pull.</td>
+</tr>
+<tr>
+<td>Availability (reads)</td>
+<td><strong>99.99%+</strong> — reads must survive control-plane and even regional outages; serving replicas are independently survivable.</td>
+</tr>
+<tr>
+<td>Consistency model</td>
+<td><strong>Asymmetric.</strong> Adds: read-your-writes within region + bounded-staleness (≤ N s) globally, fail-<strong>closed</strong> for safety. Removes: eventual.</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>Adds are durable (quorum-written) before ack — losing a block is a security regression. 11 9's on the source-of-truth store.</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>Mutations authN/Z + audited; bulk feeds signed; serving replicas read-only and tamper-evident.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>READS
+  10,000,000 QPS reads
+  Answered by in-process Bloom filter (negative) or local cache/replica (positive).
+  ~99% of real traffic is &quot;not blocked&quot; -&gt; Bloom answers NO with one memory probe, no network.
+
+BLOOM FILTER SIZING (front layer, per serving process)
+  n = 1e9 entries, target false-positive p = 1%
+  bits m = -n*ln(p) / (ln2)^2 = -1e9 * ln(0.01) / 0.4805
+         ≈ 1e9 * 4.605 / 0.4805 ≈ 9.585e9 bits ≈ 1.20 GB
+  hash fns k = (m/n)*ln2 ≈ 9.585 * 0.693 ≈ 6.6 -&gt; 7
+  -&gt; ~1.2 GB resident per process for p=1% at 1e9 keys (fits in RAM).
+  Want p=0.1%? m ≈ 1.8 GB. Tradeoff: bytes vs false-positive rate (see §9).
+
+POSITIVE-PATH CONFIRMATION
+  Bloom says &quot;maybe blocked&quot; on ~1% of allowed keys (false positives) + all true positives.
+  Confirm against exact local KV replica. If 0.1% of 10M QPS hit confirm = 10K QPS exact lookups.
+
+STORAGE (source of truth, exact set)
+  1e9 entries * (32-byte key avg + 64-byte metadata: reason,ttl,source,ts)
+    ≈ 1e9 * 96 B ≈ 96 GB raw, ~300 GB with replication factor 3 + index overhead.
+  Trivially sharded across a handful of nodes.
+
+WRITE / PROPAGATION BANDWIDTH
+  Peak 10K writes/sec * ~100 B/event = 1 MB/s on the propagation bus.
+  Fan-out to (say) 10 regions * many subscribers -&gt; still well under 1 GB/s. Bus is not the bottleneck.
+
+DELTA SNAPSHOT (Bloom rebuild / cold start)
+  1.2 GB Bloom image; a new serving process pulls it from a regional cache in &lt;1 s on 10 Gbps,
+  then applies the live delta stream from the bus to catch up.
+</code></pre>
+<h2>5) API design</h2>
+<pre><code># Data plane (hot read path) — local, in-process or sidecar
+bool   isBlocked(bytes key)                       # Bloom probe; on hit -&gt; confirm()
+Verdict confirm(bytes key)                        # {BLOCKED, reason, ttl} | NOT_FOUND, local KV
+
+# Control plane (mutations) — authenticated, audited
+PUT  /v1/deny      { key, reason, ttl_s, source } -&gt; { id, propagated_regions, ts }
+DELETE /v1/deny/{key}                              -&gt; { tombstoned: true, ts }
+POST /v1/deny:bulkImport  (signed feed ref)        -&gt; { accepted, rejected, job_id }
+GET  /v1/deny/{key}                                -&gt; { blocked, reason, ttl, added_by, ts }
+
+# Subscription (replica/agent &lt;- source of truth)
+GET  /v1/stream?from_seq=&lt;n&gt;  (long-poll / gRPC stream) -&gt; ordered deltas {op, key, meta, seq}
+GET  /v1/snapshot?type=bloom|exact                 -&gt; versioned image + base_seq
+</code></pre>
+<h2>6) Architecture — request &amp; data flow</h2>
+<p><strong>(a) ASCII layered request/data flow</strong></p>
+<pre><code>        Serving jobs (web FE / mail / API gateways)  — the CALLERS of the denylist
+                       |
+                       |  isBlocked(key)  (in-process / sidecar call, no network on NO path)
+                       v
+        +======================================================+
+        |  DENYLIST AGENT  (library or sidecar, co-located)    |
+        |  [1] Bloom filter (negative front, ~1.2 GB, in RAM)  |   probe: ~99% answered here
+        |        | &quot;maybe&quot; / true-positive                     |
+        |        v                                             |
+        |  [2] Local exact KV replica (LSM/RocksDB, read-only) |   confirm reason/ttl
+        +======================================================+
+                       ^                          ^
+        snapshot+delta |                          | miss / cold start
+                       |                          v
+              [ Regional Replica Tier ]   [ Regional snapshot/cache (Bloom + exact images) ]
+               (per-region, multiple        served from object store + warm cache
+                replicas, read-only)
+                       ^
+                       |  ordered delta stream (op,key,seq)  — PUSH, async, bounded-staleness
+                       |
+        +==============================================================+
+        |     PROPAGATION BUS  (partitioned, ordered per shard)        |   sequenced log; fan-out
+        |     (pub/sub log: regions + agents subscribe by from_seq)    |   to every region
+        +==============================================================+
+                       ^                                   |
+            commit ack | (write path)                      | replays for new subscribers
+                       |                                    v
+        +========================================+    [ Audit log / warehouse ]
+        |   SOURCE OF TRUTH (control plane)      |
+        |   Sharded KV, quorum-replicated        |  block()/unblock() durable here first
+        |   (consistent hashing; R+W&gt;N per shard)|  emits monotonically increasing seq
+        +========================================+
+                       ^
+                       |  authN/Z, rate-limit, validation, signing
+                       |
+        [ Control API / Admin + bulk-import feed ]  &lt;- abuse-detection / ML / partner feeds
+</code></pre>
+<p><strong>Read path (the 99% case).</strong> A serving job asks <code>isBlocked(key)</code>. The co-located <strong>Denylist Agent</strong> probes its in-RAM <strong>Bloom filter [1]</strong> — one memory access, no network. For the vast majority of keys the answer is a hard <strong>NO</strong> (Bloom never produces false negatives), so we return in microseconds. If Bloom says "maybe" (a true positive <em>or</em> a ~1% false positive), we confirm against the <strong>local exact KV replica [2]</strong> to get the verdict + reason + TTL. The agent never makes a cross-region call on the hot path; it serves entirely from local in-RAM/on-SSD state.</p>
+<p><strong>Write path (the 0.1% case).</strong> A <code>block(key)</code> enters the <strong>Control API</strong>, which authenticates, validates, and writes to the <strong>Source-of-Truth</strong> sharded KV with a <strong>quorum (R+W&gt;N)</strong> so the entry is durable before we ack. The write is assigned a <strong>monotonic sequence number</strong> and appended to the <strong>Propagation Bus</strong> (an ordered, partitioned log). Every region's <strong>Replica Tier</strong> and every leaf <strong>Agent</strong> is a subscriber reading <code>from_seq</code>; they apply the delta to both their exact replica and their Bloom filter (a <code>block</code> only ever <em>sets</em> bits). A new or recovering subscriber pulls a <strong>versioned snapshot</strong> (Bloom image + exact image at <code>base_seq</code>) then replays deltas from <code>base_seq</code> to catch up — bounded-staleness convergence in ≤ N seconds.</p>
+<p><strong>(b) Mermaid flowchart</strong></p>
+<div class="mermaid">
+flowchart TD
+  caller[Serving jobs: web / mail / API] -->|isBlocked key| agent
+
+  subgraph AGENT[Denylist Agent - co-located]
+    bloom[(Bloom filter - negative front)]
+    localkv[(Local exact KV replica)]
+    bloom -. maybe / hit .-> localkv
+  end
+  caller --> bloom
+  agent -->|NO ~99%| caller
+  localkv -->|verdict + reason| caller
+
+  rep[Regional replica tier] -->|snapshot + delta| agent
+  snap[(Regional snapshot / cache: Bloom + exact)] -. cold start / miss .-> agent
+  bus[[Propagation bus - ordered, partitioned]] -->|delta stream from_seq| rep
+  bus --> snap
+
+  admin[Control API / Admin] -->|authN/Z, validate| sot[(Source of truth - sharded KV, quorum R+W>N)]
+  feed[Abuse-detection / partner feeds] -->|bulk import signed| admin
+  sot -->|commit + seq| bus
+  sot --> audit[(Audit log / warehouse)]
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<p><strong>Source of truth — sharded, quorum-replicated KV (LSM-tree backed).</strong></p>
+<pre><code>key   : bytes (normalized: lowercase host, canonical URL, raw 32-byte hash, or user-id)
+value : { reason, source, added_by, added_ts, expires_ts, op_version }
+shard : consistent-hash(key)  -&gt;  one of N shards, each RF=3, R+W&gt;N for read-your-writes
+seq   : global monotonic counter (per partition) stamped on every mutation
+</code></pre>
+<p>Why KV + LSM, from first principles: the access pattern is <strong>point read/write by exact key</strong> at extreme volume with a high <em>write/ingest</em> burst during bulk feeds — LSM-trees turn random writes into sequential SSTable flushes (cheap ingest), and point reads are fast with a per-SSTable Bloom filter. Consistent hashing spreads 10^9 keys evenly and lets us add shards with minimal rebalancing. Quorum (R+W&gt;N) gives us tunable, <em>strong-enough</em> consistency on the control plane without a single primary bottleneck.</p>
+<p><strong>Serving replica — embedded read-only KV (e.g. RocksDB image) + in-RAM Bloom.</strong> The agent never writes; it materializes snapshots and applies deltas. The <strong>Bloom filter</strong> is the negative-cache front; the exact KV is the confirmation layer.</p>
+<p><strong>Propagation bus — partitioned ordered log.</strong> Not a DB: a sequenced, replayable commit log (think a Kafka-shaped partitioned log) so any subscriber can resume from a sequence number. Ordering per partition gives us deterministic convergence.</p>
+<p><strong>Audit — append-only log → warehouse.</strong> Immutable record of every mutation for compliance, rollback, and "why is this blocked?" debugging.</p>
+<p>Stores we deliberately reject: a relational DB as source of truth (we need no joins/transactions across keys, and write-ingest bursts favor LSM); a single global cache as the only tier (a regional outage or cache flush would cause a correctness gap — we want <em>local</em> survivable replicas).</p>
+<h2>8) Deep dive</h2>
+<h3>Deep dive A — Bloom filter as the front layer (and what it costs)</h3>
+<p>The Bloom filter is the reason this system is cheap at 10M QPS. Properties we exploit:</p>
+<ul>
+<li><strong>No false negatives</strong> — if Bloom says "not present," the key is definitely not blocked. So the 99% NO path is <em>correct and network-free</em>. This is exactly why a Bloom front is safe for a denylist: we never wrongly <em>allow</em> a blocked entity.</li>
+<li><strong>Tunable false positives</strong> — ~1% of allowed keys get flagged "maybe," so we pay a confirming local KV read on them (and on all true positives). We size m, k for the p we want (§4); 1% costs ~1.2 GB, 0.1% costs ~1.8 GB. <strong>The tradeoff is RAM vs confirmation traffic</strong> — a lower p means fewer confirm reads but more memory per process. At 10M QPS, dropping p from 1%→0.1% cuts confirm load 10×, often worth the extra 0.6 GB.</li>
+<li><strong>Deletes break plain Bloom</strong> — you can't unset a bit safely (it may be shared). Options: (1) a <strong>counting Bloom filter</strong> (4-bit counters) to support decrements, at ~4× memory; or (2) keep plain Bloom for the <em>add</em> fast-path and handle removals via the exact KV + periodic full <strong>rebuild</strong> of the Bloom from the source of truth (e.g. every few minutes). For a denylist, removals are rare and non-urgent, so <strong>plain Bloom + periodic rebuild</strong> is usually the right call — un-blocking lags by one rebuild cycle, which is acceptable.</li>
+</ul>
+<p><strong>Versioning + warm-up.</strong> Each Bloom image carries <code>base_seq</code>; the agent applies live deltas on top. A brand-new process pulls the 1.2 GB image from a regional cache (&lt;1 s) and is immediately useful, then catches up on deltas. We never serve from a half-built filter — we atomically swap a fully materialized image.</p>
+<h3>Deep dive B — Fast, ordered propagation + the fail-open/fail-closed decision</h3>
+<p><strong>Propagation.</strong> Adds must reach every region in ≤ N s. We <strong>push</strong> via the ordered bus rather than relying on pull TTLs, because push gives single-digit-second global enforcement; pull with a short TTL gives staleness = TTL and hammers the source. Per-partition sequence numbers make convergence deterministic and let any subscriber detect gaps and request a replay. We also keep a <strong>short safety TTL on the pull path</strong> as a backstop if a subscriber falls behind the bus's retention.</p>
+<p><strong>Cache invalidation for removals.</strong> When we <code>unblock</code>, we write a <strong>tombstone</strong> (not a silent delete) so the removal itself propagates as an ordered op; replicas apply it, and the Bloom catches up on the next rebuild. Tombstones are garbage-collected after they've been durably applied everywhere (tracked via the min applied <code>seq</code> across subscribers).</p>
+<p><strong>The CAP call.</strong> Under a network partition between an agent and its sources, the agent keeps serving from local state (AP for reads — availability preserved). But the <em>policy</em> question is: if local state is <strong>stale or missing</strong>, do we fail <strong>open</strong> (allow) or <strong>closed</strong> (deny)?
+- <strong>Fail closed</strong> for safety-critical gating (malware/phishing/credential checks): a brief over-block is better than letting a known-bad through. Default for security denylists.
+- <strong>Fail open</strong> for availability-critical, low-harm paths (e.g. soft spam scoring): better to serve than to block legitimate traffic on infra failure.
+This is configured <strong>per call-site / per category</strong>, and stating it explicitly is the Staff-level move.</p>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Option A</th>
+<th>Option B</th>
+<th>Choice &amp; why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Front layer</td>
+<td>Bloom filter (probabilistic)</td>
+<td>Exact in-RAM set</td>
+<td><strong>Bloom</strong> — 1.2 GB vs many GB; no false negatives makes it safe; pay only confirm reads on ~1% FP.</td>
+</tr>
+<tr>
+<td>FP rate p</td>
+<td>1% (1.2 GB)</td>
+<td>0.1% (1.8 GB)</td>
+<td>Tune to confirm-load budget; <strong>0.1%</strong> at 10M QPS to cut confirm traffic 10×.</td>
+</tr>
+<tr>
+<td>Propagation</td>
+<td>Push (ordered bus)</td>
+<td>Pull (short TTL)</td>
+<td><strong>Push</strong> for ≤N s enforcement; pull TTL kept as backstop.</td>
+</tr>
+<tr>
+<td>Consistency (adds)</td>
+<td>Strong/quorum + bounded-staleness</td>
+<td>Eventual</td>
+<td><strong>Quorum at source, bounded-staleness globally</strong> — safety entries can't be lost or lag arbitrarily.</td>
+</tr>
+<tr>
+<td>Consistency (removes)</td>
+<td>Strong</td>
+<td>Eventual via tombstone+rebuild</td>
+<td><strong>Eventual</strong> — un-blocking is non-urgent; cheaper and simpler.</td>
+</tr>
+<tr>
+<td>Deletes in Bloom</td>
+<td>Counting Bloom (4× RAM)</td>
+<td>Plain Bloom + periodic rebuild</td>
+<td><strong>Plain + rebuild</strong> — removals rare; avoid 4× memory.</td>
+</tr>
+<tr>
+<td>Partition posture</td>
+<td>Fail open</td>
+<td>Fail closed</td>
+<td><strong>Per category</strong> — closed for security, open for low-harm.</td>
+</tr>
+<tr>
+<td>Source store</td>
+<td>Sharded KV (LSM)</td>
+<td>Relational</td>
+<td><strong>KV/LSM</strong> — point access, write-burst ingest, no joins.</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Hot key on the read path.</strong> A single viral URL/IP gets probed millions of times. <em>Mitigation:</em> it's served entirely from the local Bloom/replica — no shared backend on the read path, so a hot key has zero contention. The agent is the natural shield.</li>
+<li><strong>Hot shard on the source of truth (bulk import storm).</strong> A 10M-entry feed can hammer one shard. <em>Mitigation:</em> consistent hashing spreads keys; ingest via the LSM write path (sequential); rate-limit and batch bulk imports; backpressure on the control API.</li>
+<li><strong>Propagation lag / subscriber falls behind.</strong> If an agent can't keep up, it serves stale data → a new block isn't enforced. <em>Mitigation:</em> per-partition seq lets us detect lag; alert when an agent's applied-seq trails the head by &gt; threshold; backstop short TTL forces a re-pull; fail-closed for security categories during catch-up.</li>
+<li><strong>Thundering herd on cold start / mass restart.</strong> A deploy restarts thousands of agents that all pull the 1.2 GB snapshot at once. <em>Mitigation:</em> serve snapshots from a regional cache/CDN tier, not the source of truth; stagger rollouts; agents apply delta on top of a slightly old cached image rather than demanding a fresh one.</li>
+<li><strong>False-positive blow-up.</strong> If the set grows past the Bloom's design n, p degrades and confirm traffic spikes. <em>Mitigation:</em> monitor fill ratio; auto-resize/rebuild to a larger m before p crosses threshold; shard the Bloom by key-prefix if it outgrows one process.</li>
+<li><strong>SPOF in the control plane.</strong> The source-of-truth or bus could be a single point. <em>Mitigation:</em> both are partitioned and replicated; crucially, the <em>read path does not depend on them</em> — serving survives a full control-plane outage (degrading only freshness).</li>
+<li><strong>Stale removal (un-block doesn't take).</strong> A tombstone lost → an entity stays blocked forever. <em>Mitigation:</em> tombstones are ordered ops with seq; reconciliation job compares replicas to source; periodic full rebuild self-heals.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>100M QPS reads.</strong> Already mostly local; scale by adding agents (reads need no shared backend). The limit becomes <strong>snapshot distribution</strong> — push Bloom/exact images through a CDN-like tier and a peer-to-peer (BitTorrent-style) fan-out so the source isn't a bottleneck on mass restarts.</li>
+<li><strong>10^10 entries.</strong> A single 12+ GB Bloom per process gets heavy. <strong>Shard the Bloom by key-prefix</strong> so each agent holds only the partitions it serves, or move to a <strong>blocked/partitioned Bloom</strong> with locality. Exact replica likewise sharded.</li>
+<li><strong>Tighter propagation SLO (sub-second).</strong> Move from poll-resume to <strong>always-on streaming</strong> with regional bus replicas, and pre-warm agents. Consider edge-pushed deltas.</li>
+<li><strong>Richer policy (allow-lists, per-tenant rules).</strong> Today we're pure membership; at 10× this becomes a <strong>policy layer</strong> composing denylist + allowlist + context. Keep the membership substrate dumb and fast; push complexity up.</li>
+<li><strong>Global write rate rises (mass automated blocking).</strong> Partition the bus further; shard the source-of-truth more aggressively; batch deltas. The ordered-log design scales horizontally by partition.</li>
+<li><strong>What breaks first:</strong> snapshot/cold-start fan-out under mass deploys, then Bloom memory as n grows. Both have clear escapes (CDN/p2p distribution; prefix-sharded Bloom).</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"Why a Bloom filter and not just a cache?"</strong> Bloom answers the 99% <em>negative</em> case in one memory probe with no false negatives, at ~1.2 GB for 10^9 keys — orders of magnitude cheaper than an exact in-RAM set, and it's <em>safe</em> precisely because it never wrongly allows a blocked entity.</li>
+<li><strong>"How do you handle deletes in the Bloom filter?"</strong> Plain Bloom can't unset bits safely. I use plain Bloom + the exact KV as truth and <strong>periodically rebuild</strong> the Bloom from source; removals lag by one rebuild cycle, which is fine because un-blocking isn't urgent. If removals were hot, I'd use a counting Bloom (4-bit counters, ~4× RAM).</li>
+<li><strong>"A region is partitioned from the control plane — what happens?"</strong> Reads keep working from local state (availability preserved). Freshness degrades; new blocks may not arrive. For security categories I <strong>fail closed</strong> during the gap; for low-harm categories I fail open. I alert on applied-seq lag and use a backstop TTL.</li>
+<li><strong>"How fast does a new block propagate, and how do you guarantee it?"</strong> Push over an ordered, partitioned bus → ≤ N seconds globally. Each op has a monotonic seq; subscribers detect gaps and replay, so I can <em>prove</em> convergence rather than hope for it.</li>
+<li><strong>"How do you bound false positives as the list grows?"</strong> Monitor fill ratio; resize/rebuild to a larger m before p crosses the budget; shard the Bloom by prefix past ~10^10. p is a knob trading RAM for confirm traffic.</li>
+<li><strong>"Read-your-writes for an admin who just blocked something?"</strong> Quorum (R+W&gt;N) at the source gives read-your-writes within the region; the admin's confirm read reflects the new entry immediately even though global propagation is bounded-staleness.</li>
+<li><strong>"How do you stop a bad bulk import from blocking the world?"</strong> Bulk feeds are signed and validated, rate-limited, staged, and reversible via tombstones; an audit log + a kill-switch let us roll back a bad feed by seq range.</li>
+<li><strong>"Cost of confirm reads at 10M QPS?"</strong> At p=0.1%, ~0.1%×10M + true positives ≈ low-tens-of-thousands QPS of <em>local</em> exact reads — cheap because they never leave the box.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Focus</th>
+<th>What to land</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–6 min</td>
+<td>Clarify</td>
+<td>Key shape; 10M reads vs ~10K writes (1000:1 skew); propagation SLO; <strong>fail-open vs fail-closed</strong> as a product question.</td>
+</tr>
+<tr>
+<td>6–10 min</td>
+<td>FR / NFR</td>
+<td>isBlocked/block/unblock; p99&lt;2ms reads; ≤N s propagation; asymmetric consistency.</td>
+</tr>
+<tr>
+<td>10–16 min</td>
+<td>Estimation</td>
+<td>Bloom sizing math (1.2 GB @ 1% for 10^9); storage ~300 GB; bus bandwidth ~1 MB/s.</td>
+</tr>
+<tr>
+<td>16–22 min</td>
+<td>API + high-level arch</td>
+<td>Data plane (agent) vs control plane; draw the layered diagram.</td>
+</tr>
+<tr>
+<td>22–38 min</td>
+<td>Deep dive</td>
+<td>Bloom front (no false negatives, delete-via-rebuild, FP tradeoff) + ordered push propagation + tombstones.</td>
+</tr>
+<tr>
+<td>38–46 min</td>
+<td>Tradeoffs / CAP</td>
+<td>Fail open vs closed per category; quorum at source; bounded-staleness globally.</td>
+</tr>
+<tr>
+<td>46–54 min</td>
+<td>Bottlenecks</td>
+<td>Snapshot fan-out herd, propagation lag, FP blow-up — each with a mitigation.</td>
+</tr>
+<tr>
+<td>54–60 min</td>
+<td>Scale 10×</td>
+<td>100M QPS via more agents; prefix-sharded Bloom at 10^10; CDN/p2p snapshot distribution.</td>
+</tr>
+</tbody>
+</table></article></div></body></html>
