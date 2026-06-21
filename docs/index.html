@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Google L6 Algorithm Study · 197 problems, 29 patterns</title>
-<meta name="description" content="A rich, searchable study guide for Google Staff (L6) SWE algorithm interviews — 197 solved problems across 20 patterns with key insights, complexity, and how to explain each out loud.">
+<title>Google L6 Algorithm Study · 211 problems, 31 patterns</title>
+<meta name="description" content="A rich, searchable study guide for Google Staff (L6) SWE algorithm interviews — 211 solved problems across 20 patterns with key insights, complexity, and how to explain each out loud.">
 <style>
 :root{
   --bg:#f6f7fb; --card:#ffffff; --ink:#1e2430; --muted:#5b6573; --line:#e6e9f0;
@@ -179,7 +179,8 @@ a.codelink:hover{background:#1e293b;text-decoration:none}
 <a class="nav-link" href="#stack" data-key="stack"><span class="nav-emoji">🥞</span><span class="nav-title">Stack & Parsing</span><span class="nav-count">5</span></a>
 </div>
 <div class="nav-group"><div class="nav-group-h">Search & Structures</div>
-<a class="nav-link" href="#binarysearch" data-key="binarysearch"><span class="nav-emoji">🔎</span><span class="nav-title">Binary Search</span><span class="nav-count">8</span></a>
+<a class="nav-link" href="#sorting" data-key="sorting"><span class="nav-emoji">🔃</span><span class="nav-title">Sorting Algorithms</span><span class="nav-count">5</span></a>
+<a class="nav-link" href="#binarysearch" data-key="binarysearch"><span class="nav-emoji">🔎</span><span class="nav-title">Binary Search</span><span class="nav-count">14</span></a>
 <a class="nav-link" href="#linkedlist" data-key="linkedlist"><span class="nav-emoji">🔗</span><span class="nav-title">Linked Lists</span><span class="nav-count">10</span></a>
 <a class="nav-link" href="#trees" data-key="trees"><span class="nav-emoji">🌳</span><span class="nav-title">Trees</span><span class="nav-count">9</span></a>
 <a class="nav-link" href="#treedp" data-key="treedp"><span class="nav-emoji">🎄</span><span class="nav-title">Tree DP / Rerooting</span><span class="nav-count">3</span></a>
@@ -194,6 +195,7 @@ a.codelink:hover{background:#1e293b;text-decoration:none}
 <div class="nav-group"><div class="nav-group-h">Grids & Graphs</div>
 <a class="nav-link" href="#matrix" data-key="matrix"><span class="nav-emoji">🔲</span><span class="nav-title">Matrix</span><span class="nav-count">7</span></a>
 <a class="nav-link" href="#graphs" data-key="graphs"><span class="nav-emoji">🕸️</span><span class="nav-title">Graphs</span><span class="nav-count">19</span></a>
+<a class="nav-link" href="#toposort" data-key="toposort"><span class="nav-emoji">🪢</span><span class="nav-title">Topological Sort</span><span class="nav-count">3</span></a>
 <a class="nav-link" href="#advancedgraphs" data-key="advancedgraphs"><span class="nav-emoji">🚀</span><span class="nav-title">Advanced Graphs (L6)</span><span class="nav-count">6</span></a>
 <a class="nav-link" href="#mst" data-key="mst"><span class="nav-emoji">🌉</span><span class="nav-title">Minimum Spanning Tree</span><span class="nav-count">2</span></a>
 </div>
@@ -216,18 +218,18 @@ a.codelink:hover{background:#1e293b;text-decoration:none}
       <h1>📚 Google Staff (L6) — Algorithm &amp; Data-Structure Study Guide</h1>
       <p class="sub">Every problem from the prep tracker, solved and explained for interview performance: the <b>key insight</b>, a step-by-step <b>approach</b>, <b>complexity</b>, gotchas, and exactly how to <b>explain it out loud</b>. Each card links to the runnable Java and the LeetCode problem.</p>
       <div class="stats">
-        <div class="stat"><div class="n">197</div><div class="l">Problems solved</div></div>
-        <div class="stat"><div class="n">29</div><div class="l">Patterns / chapters</div></div>
+        <div class="stat"><div class="n">211</div><div class="l">Problems solved</div></div>
+        <div class="stat"><div class="n">31</div><div class="l">Patterns / chapters</div></div>
         <div class="stat"><div class="n">25</div><div class="l">Easy</div></div>
-        <div class="stat"><div class="n">119</div><div class="l">Medium</div></div>
-        <div class="stat"><div class="n">53</div><div class="l">Hard</div></div>
+        <div class="stat"><div class="n">130</div><div class="l">Medium</div></div>
+        <div class="stat"><div class="n">56</div><div class="l">Hard</div></div>
       </div>
       <div class="cta">
         <a href="#phase1">▶ Start studying</a>
         <a class="ghost" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep" target="_blank" rel="noopener">⌨️ Browse the Java solutions</a>
         <a class="ghost" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/raw/main/google_l6_prep_tracker.xlsx" target="_blank" rel="noopener">📊 Download the tracker</a>
       </div>
-      <div class="legend"><span class="badge b-staff">🟥 Staff-tagged <b>7</b></span> <span class="badge b-l6">🟪 L6 differentiator <b>2</b></span> <span class="badge b-sig">🟦 Google signature <b>36</b></span> <span class="badge b-fav">⭐ Google fav <b>30</b></span> <span class="badge b-tagged">🔹 Google-tagged <b>45</b></span> <span class="badge b-core">⚪ Core <b>48</b></span> <span class="badge b-gap">◻️ Gap-fill <b>27</b></span> <span class="badge b-new">🆕 Recent 2025-26 <b>1</b></span> <span class="badge b-reported">📌 Reported L6 <b>1</b></span></div>
+      <div class="legend"><span class="badge b-staff">🟥 Staff-tagged <b>7</b></span> <span class="badge b-l6">🟪 L6 differentiator <b>2</b></span> <span class="badge b-sig">🟦 Google signature <b>40</b></span> <span class="badge b-fav">⭐ Google fav <b>34</b></span> <span class="badge b-tagged">🔹 Google-tagged <b>50</b></span> <span class="badge b-core">⚪ Core <b>49</b></span> <span class="badge b-gap">◻️ Gap-fill <b>27</b></span> <span class="badge b-new">🆕 Recent 2025-26 <b>1</b></span> <span class="badge b-reported">📌 Reported L6 <b>1</b></span></div>
     </section>
 
     <div class="chgrid">
@@ -239,7 +241,8 @@ a.codelink:hover{background:#1e293b;text-decoration:none}
 <a class="chcard" href="#strings"><span class="chcard-emoji">🔤</span><span class="chcard-title">Strings</span><span class="chcard-count">16 problems</span></a>
 <a class="chcard" href="#stringmatching"><span class="chcard-emoji">🧬</span><span class="chcard-title">String Matching</span><span class="chcard-count">3 problems</span></a>
 <a class="chcard" href="#stack"><span class="chcard-emoji">🥞</span><span class="chcard-title">Stack & Parsing</span><span class="chcard-count">5 problems</span></a>
-<a class="chcard" href="#binarysearch"><span class="chcard-emoji">🔎</span><span class="chcard-title">Binary Search</span><span class="chcard-count">8 problems</span></a>
+<a class="chcard" href="#sorting"><span class="chcard-emoji">🔃</span><span class="chcard-title">Sorting Algorithms</span><span class="chcard-count">5 problems</span></a>
+<a class="chcard" href="#binarysearch"><span class="chcard-emoji">🔎</span><span class="chcard-title">Binary Search</span><span class="chcard-count">14 problems</span></a>
 <a class="chcard" href="#linkedlist"><span class="chcard-emoji">🔗</span><span class="chcard-title">Linked Lists</span><span class="chcard-count">10 problems</span></a>
 <a class="chcard" href="#trees"><span class="chcard-emoji">🌳</span><span class="chcard-title">Trees</span><span class="chcard-count">9 problems</span></a>
 <a class="chcard" href="#treedp"><span class="chcard-emoji">🎄</span><span class="chcard-title">Tree DP / Rerooting</span><span class="chcard-count">3 problems</span></a>
@@ -250,6 +253,7 @@ a.codelink:hover{background:#1e293b;text-decoration:none}
 <a class="chcard" href="#backtracking"><span class="chcard-emoji">🔙</span><span class="chcard-title">Backtracking</span><span class="chcard-count">9 problems</span></a>
 <a class="chcard" href="#matrix"><span class="chcard-emoji">🔲</span><span class="chcard-title">Matrix</span><span class="chcard-count">7 problems</span></a>
 <a class="chcard" href="#graphs"><span class="chcard-emoji">🕸️</span><span class="chcard-title">Graphs</span><span class="chcard-count">19 problems</span></a>
+<a class="chcard" href="#toposort"><span class="chcard-emoji">🪢</span><span class="chcard-title">Topological Sort</span><span class="chcard-count">3 problems</span></a>
 <a class="chcard" href="#advancedgraphs"><span class="chcard-emoji">🚀</span><span class="chcard-title">Advanced Graphs (L6)</span><span class="chcard-count">6 problems</span></a>
 <a class="chcard" href="#mst"><span class="chcard-emoji">🌉</span><span class="chcard-title">Minimum Spanning Tree</span><span class="chcard-count">2 problems</span></a>
 <a class="chcard" href="#greedy"><span class="chcard-emoji">🤑</span><span class="chcard-title">Greedy</span><span class="chcard-count">3 problems</span></a>
@@ -2156,40 +2160,274 @@ for (int v : stack) total += v;     // all */ resolved → just sum additive ter
   </div>
 </section>
 
-<section class="chapter" id="binarysearch" data-title="Binary Search">
-  <h2 class="chapter-title"><span class="emoji">🔎</span> Binary Search</h2>
-  <p class="lede">Binary search is far more than "look up a value in a sorted array": it is a way to halve <em>any</em> monotonic search space — over indices, over rotation pivots, or over the <strong>answer itself</strong>. For Google L6 it's high-ROI because the hard variants (binary-search-on-answer, partition-the-median, rotated arrays) test whether you can spot a hidden monotone predicate and turn an O(n) or O(n log n) scan into O(log) — exactly the kind of insight interviewers probe for.</p>
-  <p class="source">Source: <em>Prep Tracker</em> tab · <span class="count">8 problems</span></p>
+<section class="chapter" id="sorting" data-title="Sorting Algorithms">
+  <h2 class="chapter-title"><span class="emoji">🔃</span> Sorting Algorithms</h2>
+  <p class="lede">Sorting is the bedrock primitive that almost every other technique leans on — two pointers, greedy, intervals, binary search — so an L6 is expected to <em>implement</em> the classic O(n log n) sorts from a blank file, articulate the stability/space trade-offs, and know when an O(n) non-comparison sort is legal. The high-ROI gap here is the long tail: custom comparators, in-place selection with a weird operation budget (pancake flips), and bucket/pigeonhole tricks that beat the n log n lower bound.</p>
+  <p class="source">Source: <em>High-ROI Staff gap (curated 2026)</em> · <span class="count">5 problems</span></p>
 
   <div class="panel">
     <h3>🎯 Recognition signals</h3>
     <ul class="signals">
-      <li>The input is <strong>sorted</strong>, or sorted-then-rotated, or otherwise has a monotone structure you can exploit.</li>
-      <li>You want a <strong>boundary</strong>: first/last occurrence, insertion point, first index satisfying a predicate.</li>
-      <li>The answer is a <strong>number in a known range</strong> and "is value v feasible?" is monotone (true past some threshold, false before) — that's <em>binary search on the answer</em>.</li>
-      <li>A brute-force solution is O(n) or O(n·range) and the constraints (n or value up to 10<sup>9</sup>) scream for O(log).</li>
-      <li>Phrases like "minimize the maximum", "maximize the minimum", "smallest capacity/speed/cap that works".</li>
-      <li>Two sorted arrays and a k-th / median query — partition by binary search.</li>
+      <li>"Implement sort X" / "don't call the library sort" → reproduce merge, quick, or heap and defend the choice on stability and space.</li>
+      <li>"Order to maximise/minimise some concatenation or score" → the real answer is a <em>custom comparator</em>, not a numeric sort.</li>
+      <li>A restricted mutation primitive ("you may only reverse a prefix") → in-place selection sort expressed in that operation.</li>
+      <li>"Linear time" or "the input is integers in a known range" → escape the n log n lower bound with counting / radix / bucket.</li>
+      <li>"Maximum gap between sorted neighbours" / "k-th something" without fully sorting → pigeonhole buckets or quickselect.</li>
+      <li>"Rearrange so no two adjacent are equal / strictly alternate" → median + 3-way partition with virtual indexing.</li>
     </ul>
   </div>
 
   <div class="panel">
     <h3>🧠 Core idea &amp; template</h3>
-    <p>The reliable mental model is <strong>"find the boundary of a monotone predicate"</strong>. Define a boolean <code>feasible(x)</code> that is false, false, …, true, true over the range; binary search collapses <code>[lo, hi]</code> to the first <code>true</code> (or last <code>false</code>). Use the half-open <code>while (lo &lt; hi)</code> form to converge to a single survivor without off-by-one pain — never index <code>mid+1</code> unless the loop guarantees it's in bounds. For <strong>binary search on the answer</strong>, the array values aren't what you search; you search the candidate answers and use a greedy/counting <code>feasible</code> check.</p>
-    <pre class="code"><code>// Boundary form: smallest x in [lo, hi] with feasible(x) == true.
-int lo = LOW, hi = HIGH;            // hi inclusive here
-while (lo &lt; hi) {                   // converge to ONE index
-    int mid = lo + (hi - lo) / 2;  // overflow-safe midpoint, biased low
-    if (feasible(mid)) hi = mid;   // mid works -&gt; keep it, shrink right
-    else               lo = mid + 1; // mid fails -&gt; answer is strictly right
+    <p><strong>Comparison-sort cheat sheet (the n log n lower bound applies).</strong> Every comparison sort needs &Omega;(n log n) comparisons in the worst case. Pick by the constraint you're handed: need a <em>stable</em> sort or sorting a linked list → merge sort; need <em>in-place</em> with the best constants on random data → quicksort (but guard the pivot against the already-sorted O(n²) trap); need <em>guaranteed</em> O(n log n) <em>and</em> O(1) space → heap sort.</p>
+    <pre class="code"><code>// Merge — STABLE, O(n log n) time, O(n) space. '&lt;=' on ties keeps left run first.
+void merge(int[] a, int[] buf, int lo, int mid, int hi) {
+    int i = lo, j = mid + 1, k = lo;
+    while (i &lt;= mid &amp;&amp; j &lt;= hi) buf[k++] = (a[i] &lt;= a[j]) ? a[i++] : a[j++];
+    while (i &lt;= mid) buf[k++] = a[i++];
+    while (j &lt;= hi)  buf[k++] = a[j++];
+    System.arraycopy(buf, lo, a, lo, hi - lo + 1);
 }
-return lo;                          // == hi: the boundary
 
-// Binary search ON THE ANSWER (Koko / Split Array template):
-//   lo = minimal plausible answer, hi = maximal plausible answer
-//   feasible(x): can we meet the constraint if we allow value x?
-//                (monotone: bigger x is never harder)
-//   answer = smallest x with feasible(x) == true</code></pre>
+// Quick — IN-PLACE, avg O(n log n), O(log n) stack. Median-of-three pivot dodges
+// the sorted-input O(n^2) trap; recurse small side, loop large side -> bounded depth. NOT stable.
+int partition(int[] a, int lo, int hi) {
+    int mid = lo + (hi - lo) / 2;
+    swap(a, medianOfThree(a, lo, mid, hi), hi);   // pivot parked at end
+    int pivot = a[hi], store = lo;
+    for (int i = lo; i &lt; hi; i++) if (a[i] &lt; pivot) swap(a, i, store++);
+    swap(a, store, hi);
+    return store;                                  // pivot's final sorted index
+}
+
+// Heap — IN-PLACE, O(n log n) worst, O(1) space. Build max-heap, then pop max to the back. NOT stable.
+int[] heapSort(int[] a) {
+    int n = a.length;
+    for (int i = n / 2 - 1; i &gt;= 0; i--) siftDown(a, i, n);   // O(n) heapify
+    for (int end = n - 1; end &gt; 0; end--) { swap(a, 0, end); siftDown(a, 0, end); }
+    return a;
+}</code></pre>
+    <p><strong>Non-comparison linear sorts (only when the keys cooperate).</strong> These sidestep the n log n bound by reading the keys directly instead of comparing pairs:</p>
+    <ul class="signals">
+      <li><strong>Counting sort</strong> — keys are small integers in [0, K]. Tally counts, take a prefix sum, place each key. <em>O(n + K)</em> time, <em>O(n + K)</em> space. <strong>Stable</strong> if you walk the input right-to-left when placing. Falls apart once K ≫ n.</li>
+      <li><strong>Radix sort (LSD)</strong> — fixed-width integers/strings; stable-counting-sort one digit at a time, least-significant first. <em>O(d·(n + b))</em> for d digits in base b. <strong>Stable</strong> (and relies on its inner pass being stable). Great when values are huge but digit count d is small.</li>
+      <li><strong>Bucket / pigeonhole sort</strong> — keys roughly uniform over a range. Scatter into n buckets by value, sort each bucket, concatenate. <em>O(n)</em> expected on uniform data, <em>O(n²)</em> if everything clumps into one bucket. Stability follows the per-bucket sort. This is the engine behind Maximum Gap.</li>
+    </ul>
+    <p>One-line rule of thumb: <strong>comparison sorts are universal but bounded at n log n; non-comparison sorts are linear but only legal when the key space is small or structured.</strong></p>
+  </div>
+
+  <div class="panel">
+    <h3>🗺️ Problems at a glance</h3>
+    <table class="glance">
+      <thead><tr><th>#</th><th>Problem</th><th>LC</th><th>Diff</th><th>Priority</th><th>Technique</th><th>Time</th><th>Space</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>Sort an Array</td>
+            <td><a class="lc" href="https://leetcode.com/problems/sort-an-array/" target="_blank" rel="noopener">LC 912 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-fav">⭐ Google fav</span></td>
+            <td>Merge / quick / heap from scratch</td><td>O(n log n)</td><td>O(n) / O(log n) / O(1)</td></tr>
+        <tr><td>2</td><td>Largest Number</td>
+            <td><a class="lc" href="https://leetcode.com/problems/largest-number/" target="_blank" rel="noopener">LC 179 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
+            <td>Custom comparator (a+b vs b+a)</td><td>O(n log n · k)</td><td>O(n)</td></tr>
+        <tr><td>3</td><td>Pancake Sorting</td>
+            <td><a class="lc" href="https://leetcode.com/problems/pancake-sorting/" target="_blank" rel="noopener">LC 969 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-sig">🟦 Google signature</span></td>
+            <td>Selection sort via prefix reversals</td><td>O(n²)</td><td>O(1)</td></tr>
+        <tr><td>4</td><td>Maximum Gap</td>
+            <td><a class="lc" href="https://leetcode.com/problems/maximum-gap/" target="_blank" rel="noopener">LC 164 ↗</a></td>
+            <td><span class="pill diff-hard">Hard</span></td>
+            <td><span class="badge b-sig">🟦 Google signature</span></td>
+            <td>Pigeonhole / bucket sort</td><td>O(n)</td><td>O(n)</td></tr>
+        <tr><td>5</td><td>Wiggle Sort II</td>
+            <td><a class="lc" href="https://leetcode.com/problems/wiggle-sort-ii/" target="_blank" rel="noopener">LC 324 ↗</a></td>
+            <td><span class="pill diff-hard">Hard</span></td>
+            <td><span class="badge b-sig">🟦 Google signature</span></td>
+            <td>Quickselect median + 3-way + virtual index</td><td>O(n) avg</td><td>O(1)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="deep-h">📘 Deep dive</h3>
+
+  <article class="problem" data-name="sort an array" data-lc="912">
+    <h4 class="problem-h"><span class="num">1</span> Sort an Array
+      <a class="lc" href="https://leetcode.com/problems/sort-an-array/" target="_blank" rel="noopener">LC 912 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-fav">⭐ Google fav</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Sort an integer array ascending <em>without</em> calling the library sort — implement an O(n log n) algorithm yourself.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> This is the "can you actually write a sort" gate. Have all three classic O(n log n) sorts in muscle memory so you can pick the one that matches a follow-up constraint: merge when stability or external/linked data matters, quick for the best in-place constants, heap when you need a worst-case guarantee with O(1) space.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong>
+      <ol>
+        <li><strong>Merge (stable, top-down):</strong> halve, sort each half, merge by repeatedly taking the smaller front element; take the <em>left</em> run on ties (<code>a[i] &lt;= a[j]</code>) to preserve relative order. A scratch buffer holds the merged run.</li>
+        <li><strong>Quick (in-place):</strong> choose a median-of-three pivot deterministically (first/mid/last — no <code>Math.random</code>), Lomuto-partition so smaller keys precede the pivot, then recurse into the smaller side and loop on the larger to bound stack depth at O(log n).</li>
+        <li><strong>Heap (in-place):</strong> sift down from the last internal node to build a max-heap in O(n), then repeatedly swap the root to the end of the heap region and sift the new root down; the sorted suffix grows from the back.</li>
+        <li>Each method clones the input first so the caller's array is untouched.</li>
+      </ol>
+    </div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n log n) — all three; quick degrades to O(n²) only on adversarial pivots, which median-of-three avoids on sorted input</span> <span class="chip space">💾 Space O(n) merge buffer · O(log n) quick stack · O(1) heap</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Quicksort with a naive first/last pivot is O(n²) on already-sorted input — the single most common interview blunder; median-of-three (or a random pivot) fixes it. In merge, using <code>&lt;</code> instead of <code>&lt;=</code> silently breaks stability. Heapify must run from <code>n/2 - 1</code> down to 0, not the other way. Watch the recursion bound: only recursing the smaller half keeps quicksort's stack logarithmic even in the worst case.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Library sort is off the table, so I'll implement one of the n log n classics. If they want stability I reach for merge sort — split, recurse, merge taking the left element on ties. If they want in-place I use quicksort with a median-of-three pivot so sorted input doesn't blow up to quadratic, and I recurse the small side and iterate the big side to keep the stack at O(log n). If they want a hard worst-case guarantee with constant extra space, heap sort: build a max-heap in linear time, then pop the max to the back n times, each pop O(log n)."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/sorting/SortAnArray.java" target="_blank" rel="noopener">📄 SortAnArray.java</a>
+  </article>
+
+  <article class="problem" data-name="largest number" data-lc="179">
+    <h4 class="problem-h"><span class="num">2</span> Largest Number
+      <a class="lc" href="https://leetcode.com/problems/largest-number/" target="_blank" rel="noopener">LC 179 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-tagged">🔹 Google-tagged</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Given non-negative integers, arrange them so their concatenation forms the largest possible number; return it as a string.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Sort by a <em>pairwise concatenation</em> rule, not by numeric value: <code>a</code> should precede <code>b</code> iff the string <code>a+b &gt; b+a</code>. That comparator is a valid total order (transitive on the digit strings), so greedily placing the "more valuable in front" element first yields the global maximum.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong>
+      <ol>
+        <li>Convert each number to its decimal string.</li>
+        <li>Sort descending with the comparator <code>(a, b) -&gt; (b + a).compareTo(a + b)</code> — whichever concatenation order makes the bigger number wins.</li>
+        <li><strong>All-zeros guard:</strong> if the largest piece is <code>"0"</code>, the whole result is just <code>"0"</code> (otherwise <code>[0,0]</code> would render as <code>"00"</code>).</li>
+        <li>Concatenate the sorted strings into the answer.</li>
+      </ol>
+    </div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n log n · k) — a comparison sort where each compare concatenates two k-digit strings</span> <span class="chip space">💾 Space O(n) — the boxed string array</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Comparing the numbers numerically (or by length, or lexicographically) is wrong: <code>3</code> vs <code>30</code> must compare via <code>"303" vs "303"</code>… actually <code>"330" vs "303"</code> → <code>3</code> first. The all-zeros case is the classic trap — forget it and you return <code>"00"</code> or <code>"000"</code>. Build the result with a <code>StringBuilder</code>, not repeated <code>String +=</code>, to avoid O(n²) string churn.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "I can't sort by value — <code>[3, 30]</code> should give <code>330</code>, not <code>303</code>. The right key is the concatenation itself: <code>a</code> beats <code>b</code> when <code>a+b</code> as a string exceeds <code>b+a</code>. That relation is a consistent total order, so a normal comparison sort with this comparator produces the optimal arrangement. The only edge case is all zeros, where I collapse the answer to a single <code>'0'</code>."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/sorting/LargestNumber.java" target="_blank" rel="noopener">📄 LargestNumber.java</a>
+  </article>
+
+  <article class="problem" data-name="pancake sorting" data-lc="969">
+    <h4 class="problem-h"><span class="num">3</span> Pancake Sorting
+      <a class="lc" href="https://leetcode.com/problems/pancake-sorting/" target="_blank" rel="noopener">LC 969 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-sig">🟦 Google signature</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Sort the array using only "pancake flips" — reverse a prefix of length k — and return the sequence of flip sizes (each k is 1-indexed).</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> It's selection sort expressed entirely in prefix reversals. To park the largest unsorted value at the end of its window, flip it to the <em>front</em>, then flip the whole prefix so it slides to the back. Two flips fix one element ⇒ at most 2n flips overall, well within the limit.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong>
+      <ol>
+        <li>Iterate the window <code>arr[0..i]</code> from <code>i = n-1</code> down to 1.</li>
+        <li>Find the index of the max within that prefix.</li>
+        <li>If it's already at <code>i</code>, skip (no flips). Otherwise: if it isn't at index 0, flip the prefix ending at it (record <code>maxIdx + 1</code>) to bring it to the front.</li>
+        <li>Flip the prefix of length <code>i + 1</code> (record <code>i + 1</code>) to send the front element to position <code>i</code>.</li>
+        <li>Shrink the window and repeat; the suffix stays sorted.</li>
+      </ol>
+    </div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n²) — n iterations, each scans and flips a prefix of length up to n</span> <span class="chip space">💾 Space O(1) — beyond the output list of flip sizes</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The flip size <code>k</code> is <strong>1-indexed</strong> (number of elements reversed), but the in-place reversal works on 0-indexed bounds — off-by-one here is the usual bug (record <code>maxIdx + 1</code> and <code>i + 1</code>, reverse <code>[0 .. k]</code> internally). Skip the no-op flip when the max is already at <code>i</code>, and skip the front-flip when the max is already at index 0, or you emit useless flips. Any sequence that ends sorted is accepted — there's no unique answer.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "I only have prefix reversal, so I run selection sort with that single primitive. For each position from the back, I find the largest remaining element, flip it to the front, then flip the prefix up to the target so it drops into place. That's at most two flips per element, so at most 2n flips total — comfortably under the bound — at O(n²) time because each scan-and-flip is linear."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/sorting/PancakeSorting.java" target="_blank" rel="noopener">📄 PancakeSorting.java</a>
+  </article>
+
+  <article class="problem" data-name="maximum gap" data-lc="164">
+    <h4 class="problem-h"><span class="num">4</span> Maximum Gap
+      <a class="lc" href="https://leetcode.com/problems/maximum-gap/" target="_blank" rel="noopener">LC 164 ↗</a>
+      <span class="pill diff-hard">Hard</span>
+      <span class="badge b-sig">🟦 Google signature</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Return the maximum difference between successive elements once the array is sorted — but achieve it in <em>linear</em> time and space.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Pigeonhole. With n numbers the smallest the maximum gap can possibly be is <code>ceil((max-min)/(n-1))</code>. Size each bucket to that span, so any two numbers in the <em>same</em> bucket differ by less than the answer. The maximum gap must therefore cross a bucket boundary — so compare each non-empty bucket's min against the previous non-empty bucket's max. You never need a bucket's contents, only its running min and max.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong>
+      <ol>
+        <li>Edge cases: fewer than 2 elements → 0; all equal → 0.</li>
+        <li>Compute global min and max in one pass.</li>
+        <li>Set <code>bucketSize = max(1, (max-min)/(n-1))</code> and <code>bucketCount = (max-min)/bucketSize + 1</code>.</li>
+        <li>One pass to place each number into bucket <code>(x-min)/bucketSize</code>, updating that bucket's min/max and a <code>used</code> flag.</li>
+        <li>Sweep buckets left to right tracking <code>prevMax</code> (starting at the global min); the answer is the largest <code>bucketMin - prevMax</code> over non-empty buckets.</li>
+      </ol>
+    </div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n) — one pass to fill buckets, one pass to sweep them</span> <span class="chip space">💾 Space O(n) — n+1 buckets each holding just a min and max</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> <code>bucketSize</code> must be floored to at least 1 or integer division gives a zero-width bucket and a divide-by-zero. Skip empty buckets in the sweep — comparing across them is exactly where the gap hides. The whole point is that within-bucket pairs are <em>provably</em> smaller than the answer, so you can ignore bucket internals; candidates who try to fully sort each bucket miss the O(n) win. LSD radix sort then one adjacent-difference scan is the accepted alternative if buckets feel fiddly.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Sorting then scanning is O(n log n); to hit linear I use the pigeonhole principle. If I make every bucket exactly as wide as the minimum-possible max-gap, then two numbers in one bucket can't be the answer — the answer has to jump a gap between buckets. So I record only each bucket's min and max, then walk the buckets comparing this bucket's min to the previous bucket's max. Two linear passes, O(n) time and space."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/sorting/MaximumGap.java" target="_blank" rel="noopener">📄 MaximumGap.java</a>
+  </article>
+
+  <article class="problem" data-name="wiggle sort ii" data-lc="324">
+    <h4 class="problem-h"><span class="num">5</span> Wiggle Sort II
+      <a class="lc" href="https://leetcode.com/problems/wiggle-sort-ii/" target="_blank" rel="noopener">LC 324 ↗</a>
+      <span class="pill diff-hard">Hard</span>
+      <span class="badge b-sig">🟦 Google signature</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Reorder so that <code>nums[0] &lt; nums[1] &gt; nums[2] &lt; nums[3] …</code> (strict), ideally in O(n) time and O(1) extra space.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Put the larger half on odd indices and the smaller half on even indices and every neighbour pair straddles the median, so the wiggle holds. The hard part is keeping equal medians from touching: walk a <em>virtual index</em> <code>(2k+1) % (n|1)</code> that fills odd slots first (1,3,5,…) then wraps to even slots (0,2,4,…), and 3-way-partition around the median so its two copies land maximally far apart.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong>
+      <ol>
+        <li>Find the median (the n/2-th smallest) with <strong>quickselect</strong> in O(n) average using a median-of-three pivot.</li>
+        <li>Run a Dutch-national-flag 3-way partition, but address the array through the virtual map <code>mapIndex(i) = (2*i+1) % (n|1)</code>.</li>
+        <li>Values <code>&gt; median</code> swap toward the low virtual slots (the odd, "peak" positions); values <code>&lt; median</code> swap toward the high virtual slots (the even, "valley" positions); equals stay in the middle.</li>
+        <li>Standard Dutch-flag pointer discipline: on a "greater" swap advance both, on a "less" swap don't advance the scan (the swapped-in value is unexamined), on equal just advance.</li>
+      </ol>
+    </div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n) average — quickselect O(n) plus a single Dutch-flag pass</span> <span class="chip space">💾 Space O(1) — partitions in place over the virtual mapping</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The <code>(n|1)</code> modulus (force odd) is what makes the virtual map a permutation for both even and odd n — using plain <code>n</code> breaks odd-length inputs. Without virtual indexing, equal medians end up adjacent and the strict inequality fails on inputs like <code>[1,3,2,2,3,1]</code> — this is precisely why Wiggle Sort <em>II</em> is harder than I. Don't advance the scan pointer after a "less than median" swap. Quickselect's pivot must be deterministic (median-of-three) to avoid adversarial O(n²).</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "If I split at the median and interleave the larger half onto odd positions and the smaller half onto even positions, neighbours alternate around the median automatically. The subtlety is duplicate medians colliding, so I use virtual indexing: I map my partition cursor through <code>(2k+1) % (n|1)</code>, which lays the big values onto peaks first and the small values onto valleys, pushing the two median copies as far apart as possible. Quickselect finds the median in linear average time, and the partition is one pass — so O(n) time, O(1) space."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/sorting/WiggleSortII.java" target="_blank" rel="noopener">📄 WiggleSortII.java</a>
+  </article>
+
+  <div class="panel practice">
+    <h3>🔁 Practice plan</h3>
+    <p>Work in increasing order of how far each strays from a vanilla sort. Day 1: re-derive merge, quick, and heap in <strong>Sort an Array</strong> from a blank file until the pivot guard and the stable-merge tie-break are automatic — this is the foundation everything else reuses. Day 2: the comparator twist (<strong>Largest Number</strong>) and the operation-budget twist (<strong>Pancake Sorting</strong>). Day 3: the two linear/selection tricks (<strong>Maximum Gap</strong> bucket reasoning, <strong>Wiggle Sort II</strong> quickselect + virtual index). Re-explain the n log n lower bound and exactly which problems legally escape it.</p>
+    <ul class="checklist">
+      <li>✅ I can write merge, quick, and heap sort from scratch and state each one's stability and space.</li>
+      <li>✅ I can explain why median-of-three (or a random pivot) rescues quicksort from O(n²) on sorted input.</li>
+      <li>✅ I can name when counting / radix / bucket are legal and which of them are stable.</li>
+      <li>✅ I can justify the bucket width in Maximum Gap via the pigeonhole principle.</li>
+      <li>✅ I can explain why virtual indexing keeps equal medians apart in Wiggle Sort II.</li>
+      <li>✅ Follow-ups rehearsed: Kth Largest Element (215, quickselect), Sort Colors (75, Dutch flag), Merge Intervals (56, sort-then-sweep).</li>
+    </ul>
+  </div>
+</section>
+
+<section class="chapter" id="binarysearch" data-title="Binary Search">
+  <h2 class="chapter-title"><span class="emoji">🔎</span> Binary Search</h2>
+  <p class="lede">Binary search is two patterns wearing one coat. The classic form halves a sorted (or locally-ordered) array to find an index in O(log n); the deeper form — <em>binary search on the answer</em> — searches a numeric answer range guarded by a monotone yes/no predicate. The second is the Google L6 differentiator: once you see "minimize the maximum" or "smallest feasible X", you can turn an O(n!) optimization into O(n log range), and the interview is half won.</p>
+  <p class="source">Source: <em>Prep Tracker &amp; curated Staff gaps</em> · <span class="count">14 problems</span></p>
+
+  <div class="panel">
+    <h3>🎯 Recognition signals</h3>
+    <ul class="signals">
+      <li><strong>Sorted (or rotated-sorted) input + "find / does it exist".</strong> The default reflex on any sorted array — O(log n) beats a linear scan for free.</li>
+      <li><strong>A monotone predicate.</strong> "If capacity C works, every capacity &gt; C works too." Whenever feasibility flips exactly once from false→true (or true→false) along a number line, binary search the flip point.</li>
+      <li><strong>"Minimize the maximum" / "maximize the minimum" / "smallest k such that…".</strong> The signature phrasing of binary-search-on-the-answer (Koko, Capacity, Split Array).</li>
+      <li><strong>"First / last occurrence", "smallest index ≥ x", "insertion point".</strong> Lower/upper-bound templates, not the vanilla equality search.</li>
+      <li><strong>Answer is a contiguous window or a single pivot/peak.</strong> A discrete structure you can converge onto by comparing a candidate to its neighbour (peak, rotation min, k-closest window).</li>
+      <li><strong>O(log) demanded on data that isn't a flat sorted array.</strong> 2-D matrix, value range [1,n], two arrays' median — flatten, search the value axis, or partition.</li>
+    </ul>
+  </div>
+
+  <div class="panel">
+    <h3>🧠 Core idea &amp; template</h3>
+    <p><strong>Two families, one invariant.</strong> Always state the invariant out loud — "the answer is in <code>[lo, hi]</code>" — and make every branch preserve it. The bugs are never the idea; they're the boundary (<code>&lt;</code> vs <code>&lt;=</code>), the mid update (<code>mid</code> vs <code>mid±1</code>), and integer overflow.</p>
+
+    <p><strong>Family 1 — classic lower/upper bound (search an index).</strong> Prefer the half-open <code>[lo, hi)</code> lower-bound template; it generalises to first/last occurrence, insertion point, and rotated variants. Use <code>lo + (hi - lo) / 2</code> to dodge overflow.</p>
+    <pre class="code"><code>// Smallest index i in [0, n] with pred(i) true, given pred is false...false,true...true.
+int lowerBound(int[] a, int key) {
+    int lo = 0, hi = a.length;          // hi EXCLUSIVE: search [lo, hi)
+    while (lo &lt; hi) {                   // stop when the window is empty
+        int mid = lo + (hi - lo) / 2;   // overflow-safe midpoint
+        if (a[mid] &lt; key) lo = mid + 1; // mid fails: first valid is strictly right
+        else              hi = mid;     // mid qualifies: keep it as a candidate
+    }
+    return lo;                          // lo == hi == the boundary
+}
+// first occurrence  = lowerBound(a, key)        (verify a[i] == key)
+// last  occurrence  = lowerBound(a, key + 1) - 1
+// "converge to one element" peak/min variant: while (lo &lt; hi) { hi = mid | lo = mid+1; } return lo;</code></pre>
+
+    <p><strong>Family 2 — binary search on the answer (monotone predicate).</strong> When the answer is a number and <code>feasible(x)</code> is monotone, search the value range itself. The greedy/counting <code>feasible</code> check is the real work; binary search just finds where it flips. The <strong>on-answer family</strong> in this chapter is <em>Koko Eating Bananas</em>, <em>Capacity To Ship Packages</em>, and <em>Split Array Largest Sum</em> — all three are the identical skeleton with a different <code>feasible</code>.</p>
+    <pre class="code"><code>// Smallest x in [lo, hi] with feasible(x) true (feasible is monotone false→true).
+int searchAnswer(int[] data) {
+    int lo = lowestPossibleAnswer;      // e.g. max(element) — a day must hold its heaviest item
+    int hi = highestPossibleAnswer;     // e.g. sum(elements) — everything in one piece always works
+    while (lo &lt; hi) {
+        int mid = lo + (hi - lo) / 2;
+        if (feasible(data, mid)) hi = mid;     // mid works → try tighter
+        else                     lo = mid + 1; // mid too small → need more
+    }
+    return lo;                          // smallest feasible answer
+}
+// feasible = a greedy O(n) sweep returning days/pieces/hours needed at budget mid,
+// compared against the allowed limit. Pick lo/hi as the tightest provable bounds.</code></pre>
   </div>
 
   <div class="panel">
@@ -2201,13 +2439,13 @@ return lo;                          // == hi: the boundary
             <td><a class="lc" href="https://leetcode.com/problems/sqrtx/" target="_blank" rel="noopener">LC 69 ↗</a></td>
             <td><span class="pill diff-easy">Easy</span></td>
             <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
-            <td>Search last k with k²≤x</td><td>O(log x)</td><td>O(1)</td></tr>
+            <td>Search on answer (largest k, k²≤x)</td><td>O(log x)</td><td>O(1)</td></tr>
         <tr><td>2</td><td>Find Peak Element</td>
             <td><a class="lc" href="https://leetcode.com/problems/find-peak-element/" target="_blank" rel="noopener">LC 162 ↗</a></td>
             <td><span class="pill diff-medium">Medium</span></td>
             <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
             <td>Follow the ascending slope</td><td>O(log n)</td><td>O(1)</td></tr>
-        <tr><td>3</td><td>Find First and Last Position of Element in Sorted Array</td>
+        <tr><td>3</td><td>Find First and Last Position</td>
             <td><a class="lc" href="https://leetcode.com/problems/find-first-and-last-position-of-element-in-sorted-array/" target="_blank" rel="noopener">LC 34 ↗</a></td>
             <td><span class="pill diff-medium">Medium</span></td>
             <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
@@ -2216,23 +2454,53 @@ return lo;                          // == hi: the boundary
             <td><a class="lc" href="https://leetcode.com/problems/search-in-rotated-sorted-array/" target="_blank" rel="noopener">LC 33 ↗</a></td>
             <td><span class="pill diff-medium">Medium</span></td>
             <td><span class="badge b-core">⚪ Core</span></td>
-            <td>Identify sorted half, range-check</td><td>O(log n)</td><td>O(1)</td></tr>
-        <tr><td>5</td><td>Find Minimum in Rotated Sorted Array</td>
+            <td>Find the sorted half, range-check</td><td>O(log n)</td><td>O(1)</td></tr>
+        <tr><td>5</td><td>Search in Rotated Sorted Array II</td>
+            <td><a class="lc" href="https://leetcode.com/problems/search-in-rotated-sorted-array-ii/" target="_blank" rel="noopener">LC 81 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
+            <td>Sorted-half + trim equal ends</td><td>O(log n) avg, O(n) worst</td><td>O(1)</td></tr>
+        <tr><td>6</td><td>Find Minimum in Rotated Sorted Array</td>
             <td><a class="lc" href="https://leetcode.com/problems/find-minimum-in-rotated-sorted-array/" target="_blank" rel="noopener">LC 153 ↗</a></td>
             <td><span class="pill diff-medium">Medium</span></td>
             <td><span class="badge b-core">⚪ Core</span></td>
             <td>Compare mid to right end</td><td>O(log n)</td><td>O(1)</td></tr>
-        <tr><td>6</td><td>Koko Eating Bananas</td>
+        <tr><td>7</td><td>Search a 2D Matrix</td>
+            <td><a class="lc" href="https://leetcode.com/problems/search-a-2d-matrix/" target="_blank" rel="noopener">LC 74 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-core">⚪ Core</span></td>
+            <td>Flatten to virtual sorted array</td><td>O(log mn)</td><td>O(1)</td></tr>
+        <tr><td>8</td><td>Search a 2D Matrix II</td>
+            <td><a class="lc" href="https://leetcode.com/problems/search-a-2d-matrix-ii/" target="_blank" rel="noopener">LC 240 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-fav">⭐ Google fav</span></td>
+            <td>Top-right staircase</td><td>O(m + n)</td><td>O(1)</td></tr>
+        <tr><td>9</td><td>Find the Duplicate Number</td>
+            <td><a class="lc" href="https://leetcode.com/problems/find-the-duplicate-number/" target="_blank" rel="noopener">LC 287 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-fav">⭐ Google fav</span></td>
+            <td>Search on value + count ≤ mid</td><td>O(n log n)</td><td>O(1)</td></tr>
+        <tr><td>10</td><td>Find K Closest Elements</td>
+            <td><a class="lc" href="https://leetcode.com/problems/find-k-closest-elements/" target="_blank" rel="noopener">LC 658 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
+            <td>Binary search the window's left edge</td><td>O(log(n−k) + k)</td><td>O(k)</td></tr>
+        <tr><td>11</td><td>Koko Eating Bananas</td>
             <td><a class="lc" href="https://leetcode.com/problems/koko-eating-bananas/" target="_blank" rel="noopener">LC 875 ↗</a></td>
             <td><span class="pill diff-medium">Medium</span></td>
             <td><span class="badge b-core">⚪ Core</span></td>
-            <td>Binary search on answer (speed)</td><td>O(n log P)</td><td>O(1)</td></tr>
-        <tr><td>7</td><td>Split Array Largest Sum</td>
+            <td>Search on answer (min speed)</td><td>O(n log maxPile)</td><td>O(1)</td></tr>
+        <tr><td>12</td><td>Capacity To Ship Packages Within D Days</td>
+            <td><a class="lc" href="https://leetcode.com/problems/capacity-to-ship-packages-within-d-days/" target="_blank" rel="noopener">LC 1011 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
+            <td>Search on answer (min capacity)</td><td>O(n log(sum−max))</td><td>O(1)</td></tr>
+        <tr><td>13</td><td>Split Array Largest Sum</td>
             <td><a class="lc" href="https://leetcode.com/problems/split-array-largest-sum/" target="_blank" rel="noopener">LC 410 ↗</a></td>
             <td><span class="pill diff-hard">Hard</span></td>
             <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
-            <td>Binary search on answer (cap)</td><td>O(n log S)</td><td>O(1)</td></tr>
-        <tr><td>8</td><td>Median of Two Sorted Arrays</td>
+            <td>Search on answer (min largest sum)</td><td>O(n log sum)</td><td>O(1)</td></tr>
+        <tr><td>14</td><td>Median of Two Sorted Arrays</td>
             <td><a class="lc" href="https://leetcode.com/problems/median-of-two-sorted-arrays/" target="_blank" rel="noopener">LC 4 ↗</a></td>
             <td><span class="pill diff-hard">Hard</span></td>
             <td><span class="badge b-core">⚪ Core</span></td>
@@ -2249,16 +2517,16 @@ return lo;                          // == hi: the boundary
       <span class="pill diff-easy">Easy</span>
       <span class="badge b-tagged">🔹 Google-tagged</span>
     </h4>
-    <p class="oneline"><strong>Problem.</strong> Return floor(√x) for a non-negative integer x, using integer arithmetic only.</p>
-    <div class="block insight"><strong>💡 Key insight.</strong> <code>floor(√x)</code> is the largest k with <code>k·k ≤ x</code>. Since <code>k·k</code> is monotincreasing, the valid k form a prefix <code>[0..ans]</code> — binary search the <em>last</em> k satisfying the predicate.</div>
+    <p class="oneline"><strong>Problem.</strong> Return <code>floor(sqrt(x))</code> for a non-negative integer <code>x</code>, using only integer arithmetic.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> <code>floor(sqrt(x))</code> is the <em>largest</em> k with <code>k*k &lt;= x</code>, and <code>k*k</code> is monotonically increasing, so the valid k form a prefix <code>[0 .. answer]</code>. This is binary-search-on-the-answer in miniature: search the last k that satisfies the predicate.</div>
     <div class="block approach"><strong>🛠️ Approach.</strong><ol>
-      <li>Search <code>lo=0, hi=x</code> (since √x ≤ x for all x ≥ 0).</li>
-      <li>At each <code>mid</code>, test <code>(long) mid*mid &lt;= x</code>. If true, record <code>ans = mid</code> and move right (<code>lo = mid+1</code>); else move left (<code>hi = mid-1</code>).</li>
-      <li>Return the last recorded <code>ans</code>.</li>
+      <li>Set <code>lo = 0, hi = x</code> (since <code>sqrt(x) &lt;= x</code> for all <code>x &gt;= 0</code>), and keep a running <code>ans</code>.</li>
+      <li>For each <code>mid</code>, test <code>(long) mid * mid &lt;= x</code>. If true, <code>mid</code> is a valid floor — record it in <code>ans</code> and move <code>lo = mid + 1</code> to reach for a larger root.</li>
+      <li>If false, <code>mid</code> overshoots — move <code>hi = mid - 1</code>. Return <code>ans</code>.</li>
     </ol></div>
-    <p class="cx"><span class="chip time">⏱️ Time O(log x) — halve the candidate range each step</span> <span class="chip space">💾 Space O(1) — a few scalars</span></p>
-    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> <code>mid*mid</code> overflows <code>int</code> near x = 2<sup>31</sup>−1 (mid ≈ 46340) — cast to <code>long</code> before squaring. This is the classic "last index where predicate holds" form, so it uses the inclusive <code>lo &lt;= hi</code> loop with an explicit <code>ans</code>, not the converge-to-one form. Don't start <code>hi = x/2</code> as a "shortcut" without handling x = 0 and x = 1.</div>
-    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "I'm looking for the greatest k whose square doesn't exceed x. Because squaring is monotone, feasibility flips once, so I binary search the boundary: when mid² ≤ x I save mid and search higher, otherwise lower. I square as a long to dodge overflow, giving O(log x)."</div>
+    <p class="cx"><span class="chip time">⏱️ Time O(log x) — the candidate range halves each step</span> <span class="chip space">💾 Space O(1) — a handful of scalars</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> <code>mid * mid</code> overflows <code>int</code> near <code>x = 2³¹−1</code> (root ≈ 46340) — the cast to <code>long</code> before multiplying is mandatory. <code>x = 0</code> must return 0; the inclusive <code>lo &lt;= hi</code> loop with <code>ans = 0</code> handles it. Don't return <code>lo</code> or <code>hi</code> reflexively — track <code>ans</code> so the floor is unambiguous.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "The brute force scans k upward until k² exceeds x — O(√x). But k² is monotone, so the answer is the boundary of a true/false prefix, and I binary search it in O(log x). The one trap is overflow, so I compute mid*mid as a long before comparing."</div>
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/binarysearch/SqrtX.java" target="_blank" rel="noopener">📄 SqrtX.java</a>
   </article>
 
@@ -2268,35 +2536,35 @@ return lo;                          // == hi: the boundary
       <span class="pill diff-medium">Medium</span>
       <span class="badge b-tagged">🔹 Google-tagged</span>
     </h4>
-    <p class="oneline"><strong>Problem.</strong> Return the index of <em>any</em> peak (element strictly greater than both neighbors); assume <code>nums[-1] = nums[n] = -∞</code> and no equal adjacent elements.</p>
-    <div class="block insight"><strong>💡 Key insight.</strong> The local slope points toward a peak. If <code>nums[mid] &lt; nums[mid+1]</code> the array is still rising, so a peak must exist to the right; otherwise you're at or past a peak, so one exists at <code>mid</code> or to its left. Walking uphill always lands on some peak.</div>
+    <p class="oneline"><strong>Problem.</strong> Return the index of <em>any</em> peak (an element strictly greater than both neighbours) in an array where adjacent elements differ, treating out-of-bounds as −∞.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> The slope at <code>mid</code> points toward a peak. If <code>nums[mid] &lt; nums[mid+1]</code> the array is still rising, so a peak must exist to the right; otherwise we're at or past a peak and one exists at <code>mid</code> or to its left. Following the ascent is guaranteed to land on a peak because the boundaries are −∞.</div>
     <div class="block approach"><strong>🛠️ Approach.</strong><ol>
-      <li>Use <code>lo=0, hi=n-1</code> with the converge form <code>while (lo &lt; hi)</code>.</li>
-      <li>If <code>nums[mid] &lt; nums[mid+1]</code> (ascending), discard the left: <code>lo = mid+1</code>.</li>
-      <li>Else (descending or peak at mid), keep mid as a candidate: <code>hi = mid</code>. Return <code>lo</code> when the range collapses.</li>
+      <li>Use the converge-to-one-index template: <code>lo = 0, hi = n - 1</code>, loop while <code>lo &lt; hi</code>.</li>
+      <li><code>mid + 1</code> is always in bounds because <code>lo &lt; hi</code>. If <code>nums[mid] &lt; nums[mid + 1]</code>, ascend right: <code>lo = mid + 1</code>.</li>
+      <li>Else keep the left side including <code>mid</code> as a candidate: <code>hi = mid</code>. Return <code>lo</code> when the window collapses.</li>
     </ol></div>
     <p class="cx"><span class="chip time">⏱️ Time O(log n) — halve the range each step</span> <span class="chip space">💾 Space O(1) — two indices</span></p>
-    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The <code>lo &lt; hi</code> guard is what keeps <code>mid+1</code> in bounds — with <code>lo &lt;= hi</code> you'd read past the end. This works even on unsorted input, which surprises people: you're not searching a value, you're following a gradient. Any valid peak is accepted, so multiple answers are fine; don't try to find "the" maximum.</div>
-    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Even though the array isn't sorted, the boundaries act like −∞, so from any rising slope a peak must lie ahead. I binary search by comparing mid to its right neighbor: if I'm ascending I go right, otherwise I keep the left side including mid. The range shrinks to a single guaranteed peak in O(log n)."</div>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> This is binary search on <em>unsorted</em> data — the trick is the local monotone signal, not global order. Use <code>hi = mid</code> (not <code>mid - 1</code>) since <code>mid</code> may itself be the peak; pairing that with <code>lo &lt; hi</code> avoids an infinite loop. Single-element and strictly-decreasing arrays both correctly return index 0.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Even though it's unsorted, there's a monotone signal: if I'm on an upslope a peak lies to the right, and the −∞ boundaries guarantee a peak always exists in whichever half I keep. So I walk uphill via binary search in O(log n) instead of scanning O(n)."</div>
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/binarysearch/FindPeakElement.java" target="_blank" rel="noopener">📄 FindPeakElement.java</a>
   </article>
 
-  <article class="problem" data-name="find first and last position of element in sorted array" data-lc="34">
-    <h4 class="problem-h"><span class="num">3</span> Find First and Last Position of Element in Sorted Array
+  <article class="problem" data-name="find first and last position" data-lc="34">
+    <h4 class="problem-h"><span class="num">3</span> Find First and Last Position
       <a class="lc" href="https://leetcode.com/problems/find-first-and-last-position-of-element-in-sorted-array/" target="_blank" rel="noopener">LC 34 ↗</a>
       <span class="pill diff-medium">Medium</span>
       <span class="badge b-tagged">🔹 Google-tagged</span>
     </h4>
-    <p class="oneline"><strong>Problem.</strong> In a sorted array, return the first and last indices of a target, or <code>[-1, -1]</code> if absent — in O(log n).</p>
-    <div class="block insight"><strong>💡 Key insight.</strong> A target occupies a contiguous block, so its bounds are two <code>lowerBound</code> searches. <code>lowerBound(target)</code> gives the first index with value ≥ target; <code>lowerBound(target+1) - 1</code> gives the last index of the block (one before the first value &gt; target).</div>
+    <p class="oneline"><strong>Problem.</strong> In a sorted array, return the first and last indices of <code>target</code>, or <code>[-1, -1]</code> if absent — in O(log n).</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> A target occupies a contiguous block, so its two ends are two lower-bound searches. <code>lowerBound(target)</code> gives the first index with value <code>&gt;= target</code>; <code>lowerBound(target + 1)</code> gives the first index strictly past the block, so its predecessor is the last occurrence.</div>
     <div class="block approach"><strong>🛠️ Approach.</strong><ol>
-      <li>Compute <code>first = lowerBound(nums, target)</code>. If it's out of range or <code>nums[first] != target</code>, the target is absent — return <code>[-1,-1]</code>.</li>
-      <li>Else compute <code>last = lowerBound(nums, target+1) - 1</code>.</li>
-      <li><code>lowerBound</code> is the half-open <code>[lo, hi)</code> search returning the smallest <code>i</code> with <code>nums[i] &gt;= key</code> (or <code>n</code> if none).</li>
+      <li>Compute <code>first = lowerBound(nums, target)</code>. If <code>first == n</code> or <code>nums[first] != target</code>, the value never appears — return <code>[-1, -1]</code>.</li>
+      <li>Compute <code>last = lowerBound(nums, target + 1) - 1</code>.</li>
+      <li><code>lowerBound</code> uses the half-open <code>[lo, hi)</code> template: <code>hi = n</code>, shrink with <code>lo = mid + 1</code> when <code>nums[mid] &lt; key</code> else <code>hi = mid</code>.</li>
     </ol></div>
     <p class="cx"><span class="chip time">⏱️ Time O(log n) — two binary searches</span> <span class="chip space">💾 Space O(1) — index arithmetic only</span></p>
-    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> You must verify <code>nums[first] == target</code> after the first search — <code>lowerBound</code> returns an <em>insertion point</em>, which may hold a larger value or sit at <code>n</code>. Using <code>target+1</code> elegantly finds the upper bound without a separate "find last" variant, but mind potential overflow if target is <code>Integer.MAX_VALUE</code>. The half-open <code>hi = n</code> (exclusive) convention is what makes the predecessor trick land exactly on the last occurrence.</div>
-    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Equal elements are contiguous, so I find the block's edges with two lower-bound searches: the first index ≥ target is the start, and the first index ≥ target+1 minus one is the end. I confirm the start actually equals target to handle absence. Two O(log n) searches, O(1) space."</div>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The membership check after the first search is essential — <code>lowerBound</code> returns an insertion point even when the target is absent, so you must verify <code>nums[first] == target</code> and guard <code>first == n</code> before indexing. The <code>target + 1</code> trick avoids writing a separate upper-bound routine. Empty array: <code>lowerBound</code> returns 0 == n, handled cleanly.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "I reduce 'first and last' to two lower-bound queries. First-index-≥-target gives the start; first-index-≥-(target+1) minus one gives the end. Both are O(log n), and a single equality check after the first search distinguishes 'present' from 'would-insert-here'."</div>
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/binarysearch/FindFirstAndLastPosition.java" target="_blank" rel="noopener">📄 FindFirstAndLastPosition.java</a>
   </article>
 
@@ -2306,106 +2574,220 @@ return lo;                          // == hi: the boundary
       <span class="pill diff-medium">Medium</span>
       <span class="badge b-core">⚪ Core</span>
     </h4>
-    <p class="oneline"><strong>Problem.</strong> A sorted array of distinct values was rotated at an unknown pivot; find the index of target, or −1, in O(log n).</p>
-    <div class="block insight"><strong>💡 Key insight.</strong> At any <code>mid</code>, at least one half is fully sorted. If <code>nums[lo] &lt;= nums[mid]</code> the left half is sorted; otherwise the right half is. Test whether target falls inside the <em>sorted</em> half (a clean range check) and shrink toward it, discarding the other half.</div>
+    <p class="oneline"><strong>Problem.</strong> A sorted array of distinct values is rotated at an unknown pivot; find <code>target</code>'s index (or −1) in O(log n).</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> At any <code>mid</code>, at least one half is fully sorted. If <code>nums[lo] &lt;= nums[mid]</code> the left half <code>[lo..mid]</code> is sorted; otherwise the right half <code>[mid..hi]</code> is. A clean range check tells us whether target lies inside the sorted half, and we discard the other half.</div>
     <div class="block approach"><strong>🛠️ Approach.</strong><ol>
-      <li>Inclusive loop <code>lo &lt;= hi</code>. If <code>nums[mid] == target</code>, return <code>mid</code>.</li>
-      <li>If left is sorted (<code>nums[lo] &lt;= nums[mid]</code>): if <code>nums[lo] &lt;= target &lt; nums[mid]</code> go left (<code>hi = mid-1</code>), else go right.</li>
-      <li>Else right is sorted: if <code>nums[mid] &lt; target &lt;= nums[hi]</code> go right (<code>lo = mid+1</code>), else go left.</li>
+      <li>Standard inclusive loop <code>lo &lt;= hi</code>; return <code>mid</code> on a hit.</li>
+      <li>If <code>nums[lo] &lt;= nums[mid]</code> (left sorted): if <code>nums[lo] &lt;= target &lt; nums[mid]</code>, go left (<code>hi = mid - 1</code>); else go right.</li>
+      <li>Else (right sorted): if <code>nums[mid] &lt; target &lt;= nums[hi]</code>, go right (<code>lo = mid + 1</code>); else go left. Return −1 if the loop exits.</li>
     </ol></div>
     <p class="cx"><span class="chip time">⏱️ Time O(log n) — halve the search space every iteration</span> <span class="chip space">💾 Space O(1) — iterative, a few indices</span></p>
-    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The boundary comparisons must use the right strict/non-strict mix: <code>nums[lo] &lt;= target &lt; nums[mid]</code> on the left, <code>nums[mid] &lt; target &lt;= nums[hi]</code> on the right — getting an inequality wrong drops valid hits. Use <code>nums[lo] &lt;= nums[mid]</code> (not <code>&lt;</code>) so a single-element or already-aligned half counts as sorted. With duplicates (LC 81) the <code>nums[lo]==nums[mid]</code> tie breaks this and forces an O(n) worst case.</div>
-    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Rotation leaves one sorted half around any midpoint. I detect which half is sorted by comparing the low end to mid, then check whether the target lies within that sorted half's range — if so I recurse into it, otherwise the other half. Each step halves the array, so O(log n)."</div>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Use <code>nums[lo] &lt;= nums[mid]</code> (with <code>&lt;=</code>) so a two-element window where <code>lo == mid</code> still classifies the left half as sorted. Get the range bounds' strictness right: the sorted-half check is half-open on the <code>mid</code> side (<code>target &lt; nums[mid]</code> / <code>nums[mid] &lt; target</code>) because <code>mid</code> was already tested. Distinct values are assumed — duplicates are LC 81 below.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Rotation breaks global order but never both halves at once — one side of mid is always sorted. I identify the sorted half by comparing nums[lo] to nums[mid], range-check the target against that half, and recurse into whichever half can contain it. That keeps it O(log n)."</div>
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/binarysearch/SearchInRotatedSortedArray.java" target="_blank" rel="noopener">📄 SearchInRotatedSortedArray.java</a>
   </article>
 
+  <article class="problem" data-name="search in rotated sorted array ii" data-lc="81">
+    <h4 class="problem-h"><span class="num">5</span> Search in Rotated Sorted Array II
+      <a class="lc" href="https://leetcode.com/problems/search-in-rotated-sorted-array-ii/" target="_blank" rel="noopener">LC 81 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-tagged">🔹 Google-tagged</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> The rotated-array search of LC 33, but now <em>duplicates are allowed</em> — return whether <code>target</code> exists (boolean).</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> The sorted-half logic is unchanged except for one ambiguous case: when <code>nums[lo] == nums[mid] == nums[hi]</code>, you cannot tell which half is sorted. The fix is to conservatively shrink both ends by one (<code>lo++; hi--</code>) and retry — correct, but it degrades the worst case to O(n).</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Inclusive loop; return <code>true</code> on a hit.</li>
+      <li><strong>First</strong> test the ambiguity: if <code>nums[lo] == nums[mid] &amp;&amp; nums[mid] == nums[hi]</code>, do <code>lo++; hi--</code> and continue — this branch must come before the sorted-half checks.</li>
+      <li>Otherwise apply the identical LC 33 logic: classify the sorted half via <code>nums[lo] &lt;= nums[mid]</code> and range-check target. Return <code>false</code> if the loop exits.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(log n) average, O(n) worst — duplicates can force linear shrinking</span> <span class="chip space">💾 Space O(1) — iterative, a few indices</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The all-equal input <code>[1,1,1,…]</code> with an absent target is the O(n) worst case — interviewers love to ask for it explicitly. Order matters: the <code>lo == mid == hi</code> trim must be checked <em>before</em> the <code>nums[lo] &lt;= nums[mid]</code> branch, otherwise you'd misclassify the sorted half. Note the return type changed from index to boolean because duplicates make "the index" ambiguous.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "It's LC 33 with one wrinkle: duplicates can make nums[lo], nums[mid], nums[hi] all equal, so I can't tell which half is sorted. In that single case I trim both ends by one and retry — everything else is identical. That trim is why the worst case is O(n) on an all-equal array, though it stays O(log n) on average."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/binarysearch/SearchInRotatedSortedArrayII.java" target="_blank" rel="noopener">📄 SearchInRotatedSortedArrayII.java</a>
+  </article>
+
   <article class="problem" data-name="find minimum in rotated sorted array" data-lc="153">
-    <h4 class="problem-h"><span class="num">5</span> Find Minimum in Rotated Sorted Array
+    <h4 class="problem-h"><span class="num">6</span> Find Minimum in Rotated Sorted Array
       <a class="lc" href="https://leetcode.com/problems/find-minimum-in-rotated-sorted-array/" target="_blank" rel="noopener">LC 153 ↗</a>
       <span class="pill diff-medium">Medium</span>
       <span class="badge b-core">⚪ Core</span>
     </h4>
-    <p class="oneline"><strong>Problem.</strong> Find the minimum element of a rotated sorted array of distinct values in O(log n).</p>
-    <div class="block insight"><strong>💡 Key insight.</strong> The minimum is the single "drop" point of the rotation. Comparing <code>mid</code> to the <strong>right end</strong> localizes the drop: if <code>nums[mid] &gt; nums[hi]</code> the dip is strictly right of mid, so search <code>(mid, hi]</code>; otherwise mid could be the min, so search <code>[lo, mid]</code>. Comparing to <code>hi</code> (not <code>lo</code>) sidesteps the already-sorted ambiguity.</div>
+    <p class="oneline"><strong>Problem.</strong> Find the minimum value of a rotated sorted array of distinct elements in O(log n).</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> The minimum is the single "drop" point of the rotation. Comparing <code>mid</code> to the <em>right</em> end localizes it: if <code>nums[mid] &gt; nums[hi]</code> the dip is strictly right of <code>mid</code>, so the min is in <code>(mid, hi]</code>; otherwise <code>mid</code> itself could be the min and the answer is in <code>[lo, mid]</code>. Comparing to <code>hi</code> (not <code>lo</code>) sidesteps the fully-sorted ambiguity.</div>
     <div class="block approach"><strong>🛠️ Approach.</strong><ol>
-      <li>Converge form <code>while (lo &lt; hi)</code> with <code>lo=0, hi=n-1</code>.</li>
-      <li>If <code>nums[mid] &gt; nums[hi]</code>, set <code>lo = mid+1</code> (drop is to the right).</li>
-      <li>Else set <code>hi = mid</code> (keep mid as a min candidate). Return <code>nums[lo]</code> at convergence.</li>
+      <li>Converge-to-one template: <code>lo = 0, hi = n - 1</code>, loop while <code>lo &lt; hi</code>.</li>
+      <li>If <code>nums[mid] &gt; nums[hi]</code>, the drop is right of <code>mid</code>: <code>lo = mid + 1</code>.</li>
+      <li>Else <code>mid</code> may be the min: <code>hi = mid</code>. Return <code>nums[lo]</code>.</li>
     </ol></div>
     <p class="cx"><span class="chip time">⏱️ Time O(log n) — halve the range each step</span> <span class="chip space">💾 Space O(1) — two indices</span></p>
-    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Compare against <code>nums[hi]</code>, not <code>nums[lo]</code> — a non-rotated array (<code>[1,2,3,4]</code>) has <code>nums[mid] &gt; nums[lo]</code> everywhere, which would wrongly push you right. The <code>hi = mid</code> (not <code>mid-1</code>) keeps mid in play since it might be the answer. With duplicates (LC 154) the <code>nums[mid] == nums[hi]</code> tie forces an <code>hi--</code> fallback and an O(n) worst case.</div>
-    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "The min sits at the rotation's drop. I compare mid to the right endpoint: if mid is larger, the array dips further right, so I move past mid; otherwise the drop is at mid or to its left, so I keep mid. Comparing to the right end handles the no-rotation case cleanly. It converges in O(log n)."</div>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Comparing <code>mid</code> to <code>lo</code> instead of <code>hi</code> breaks on a non-rotated array (e.g. <code>[1,2,3,4]</code>) because <code>nums[mid] &gt;= nums[lo]</code> is always true and you'd wrongly discard the left. Use <code>hi = mid</code> (not <code>mid - 1</code>): <code>mid</code> is still a min candidate. A non-rotated input correctly returns <code>nums[0]</code>. (With duplicates this becomes LC 154, where you'd add an <code>nums[mid] == nums[hi] → hi--</code> branch.)</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "The min is the rotation's pivot — the one place the sequence drops. I compare mid to the right endpoint: if mid is bigger, the drop is to its right; otherwise the min is at mid or left. Anchoring on the right end rather than the left is what keeps the non-rotated case correct, and it's O(log n)."</div>
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/binarysearch/FindMinimumInRotatedSortedArray.java" target="_blank" rel="noopener">📄 FindMinimumInRotatedSortedArray.java</a>
   </article>
 
+  <article class="problem" data-name="search a 2d matrix" data-lc="74">
+    <h4 class="problem-h"><span class="num">7</span> Search a 2D Matrix
+      <a class="lc" href="https://leetcode.com/problems/search-a-2d-matrix/" target="_blank" rel="noopener">LC 74 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-core">⚪ Core</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> In an <code>m×n</code> matrix where each row is sorted and every row's first value exceeds the previous row's last, decide if <code>target</code> exists in O(log(mn)).</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Those two ordering guarantees mean reading the matrix row-by-row yields one fully sorted sequence of <code>m*n</code> values. Binary search that <em>virtual</em> flattened array and map a flat index back to a cell via <code>(index / cols, index % cols)</code> — never materializing it.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Set <code>lo = 0, hi = rows*cols - 1</code> over the imaginary 1-D array.</li>
+      <li>Unflatten each <code>mid</code>: <code>val = matrix[mid / cols][mid % cols]</code>.</li>
+      <li>Compare and shrink as in plain binary search (<code>lo = mid + 1</code> / <code>hi = mid - 1</code>); return <code>true</code> on equality, <code>false</code> if the loop exits.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(log(mn)) — halve the flattened space every iteration</span> <span class="chip space">💾 Space O(1) — index arithmetic only</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Divide and mod by the <em>column</em> count (<code>cols</code>), not rows — swapping them silently transposes the index. This O(log mn) trick relies on the "next row starts above this row's max" guarantee; if only rows and columns are independently sorted (no cross-row guarantee), that's LC 240 and you need the staircase below. Guard the empty-matrix case before reading <code>matrix[0].length</code>.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Because each row's first element beats the previous row's last, the whole matrix is one sorted run if you read it in row-major order. So I binary search indices 0..mn−1 and convert each index to (row, col) with divide and mod — O(log mn), no flattening, O(1) space."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/binarysearch/SearchA2DMatrix.java" target="_blank" rel="noopener">📄 SearchA2DMatrix.java</a>
+  </article>
+
+  <article class="problem" data-name="search a 2d matrix ii" data-lc="240">
+    <h4 class="problem-h"><span class="num">8</span> Search a 2D Matrix II
+      <a class="lc" href="https://leetcode.com/problems/search-a-2d-matrix-ii/" target="_blank" rel="noopener">LC 240 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-fav">⭐ Google fav</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Rows and columns are <em>each</em> sorted ascending (but no cross-row guarantee); decide if <code>target</code> exists.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Start at the <strong>top-right corner</strong>: it's the maximum of its row and the minimum of its column — a perfect pivot. If it exceeds target, the entire column is too big (move left); if it's smaller, the entire row is too small (move down). Each comparison eliminates a whole row or column, so no per-cell binary search is needed.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Begin at <code>row = 0, col = cols - 1</code>; loop while <code>row &lt; m</code> and <code>col &gt;= 0</code>.</li>
+      <li>If <code>val == target</code> return <code>true</code>; if <code>val &gt; target</code> the column's smallest is still too big, so <code>col--</code>.</li>
+      <li>Else the row's largest is still too small, so <code>row++</code>. Return <code>false</code> when you walk off the grid.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(m + n) — at most m down-moves plus n left-moves</span> <span class="chip space">💾 Space O(1) — two indices</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The corner choice is the whole trick — top-right (or symmetrically bottom-left) works because it's simultaneously a row-max and column-min; the top-left and bottom-right corners are <em>not</em> decisive (both neighbours move the same way), so starting there fails. Don't reach for O(m log n) per-row binary search — the staircase is strictly better at O(m + n) and far simpler. This is a perennial Google favourite precisely because the naive instinct (binary search each row) is suboptimal.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Here rows and columns are sorted but not globally, so the flatten trick fails. I start at the top-right corner, which is a row-max and column-min at once: too big means kill the column and step left, too small means kill the row and step down. Each step drops a full row or column, giving O(m+n) — better than binary searching every row."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/binarysearch/SearchA2DMatrixII.java" target="_blank" rel="noopener">📄 SearchA2DMatrixII.java</a>
+  </article>
+
+  <article class="problem" data-name="find the duplicate number" data-lc="287">
+    <h4 class="problem-h"><span class="num">9</span> Find the Duplicate Number
+      <a class="lc" href="https://leetcode.com/problems/find-the-duplicate-number/" target="_blank" rel="noopener">LC 287 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-fav">⭐ Google fav</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> An array of <code>n+1</code> integers each in <code>[1, n]</code> has exactly one repeated value; find it without mutating the array and in O(1) extra space.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Binary search the <em>value</em> range, not indices. For a candidate <code>mid</code>, count how many entries are <code>&lt;= mid</code>. With no duplicates that count would be exactly <code>mid</code>; if it <em>exceeds</em> <code>mid</code>, some value in <code>[1, mid]</code> repeats, so the duplicate sits in the low half. This reads the array read-only — no mutation, no extra space.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Search candidate values <code>lo = 1, hi = n</code> (= <code>nums.length - 1</code>), loop while <code>lo &lt; hi</code>.</li>
+      <li>Count <code>count = #{v : v &lt;= mid}</code> in one O(n) pass.</li>
+      <li>If <code>count &gt; mid</code> the duplicate is in <code>[lo, mid]</code>: <code>hi = mid</code>; else <code>lo = mid + 1</code>. Return <code>lo</code>.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n log n) — log n value steps, each a full O(n) count pass</span> <span class="chip space">💾 Space O(1) — running counters only</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Don't binary search indices — the array isn't sorted; the monotone quantity is the <em>count of values ≤ mid</em>, which is what makes the predicate work. The constraints forbid the easy outs (a hash set is O(n) space; sorting mutates), so this counting search is the intended O(1)-space answer. Floyd's tortoise-and-hare (value-as-next-index cycle detection) is the O(n) alternative — worth naming as a follow-up, but the binary search is far easier to reason about under pressure.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "I can't sort or use extra space, so I binary search on the value 1..n. The count of elements ≤ mid is monotone: it equals mid when there's no early duplicate and exceeds mid once a value in [1,mid] repeats. I converge on the smallest value where the count overshoots — O(n log n) time, O(1) space. The O(n) Floyd cycle version exists but is trickier to derive live."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/binarysearch/FindTheDuplicateNumber.java" target="_blank" rel="noopener">📄 FindTheDuplicateNumber.java</a>
+  </article>
+
+  <article class="problem" data-name="find k closest elements" data-lc="658">
+    <h4 class="problem-h"><span class="num">10</span> Find K Closest Elements
+      <a class="lc" href="https://leetcode.com/problems/find-k-closest-elements/" target="_blank" rel="noopener">LC 658 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-tagged">🔹 Google-tagged</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Given a sorted array, return the <code>k</code> elements closest to <code>x</code>, sorted ascending; ties prefer the smaller element.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> The answer is always a <em>contiguous</em> length-<code>k</code> window, so binary search its left edge over <code>[0, n-k]</code>. For a candidate left <code>mid</code>, compare the two outer rivals: the left gap <code>x - arr[mid]</code> versus the right gap <code>arr[mid + k] - x</code>. If the left gap is strictly larger, sliding right (dropping <code>arr[mid]</code>) is at least as good.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>Search the left edge: <code>lo = 0, hi = n - k</code>, loop while <code>lo &lt; hi</code>.</li>
+      <li>If <code>x - arr[mid] &gt; arr[mid + k] - x</code>, the element leaving on the right is closer than the one on the left — slide right: <code>lo = mid + 1</code>.</li>
+      <li>Else keep the current edge: <code>hi = mid</code>. Then copy <code>arr[lo .. lo+k-1]</code> into the result.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(log(n−k) + k) — search the edge, then copy k elements</span> <span class="chip space">💾 Space O(k) — the output list</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Compare the two <em>window-boundary</em> candidates <code>arr[mid]</code> and <code>arr[mid + k]</code> — not <code>arr[mid]</code> vs <code>x</code>. The tie rule ("favour smaller") falls out of using strict <code>&gt;</code>: on a tie you take the <code>hi = mid</code> branch, keeping the smaller-indexed (smaller-valued) element. The high bound is <code>n - k</code> (inclusive of that left edge), and <code>mid + k</code> stays in bounds because <code>mid &lt;= n - k - 1</code> in the loop body. Avoid the O(n) two-pointer-shrink or O(n log n) sort-by-distance — this is the clean log-time edge search.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "The result is a contiguous window, so I only need its left edge. I binary search the edge in [0, n−k], comparing the element about to drop on the left against the one about to be picked up on the right; whichever is farther tells me which way to slide. Strict inequality makes ties resolve to the smaller value. Then I copy out k elements — O(log(n−k) + k)."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/binarysearch/FindKClosestElements.java" target="_blank" rel="noopener">📄 FindKClosestElements.java</a>
+  </article>
+
   <article class="problem" data-name="koko eating bananas" data-lc="875">
-    <h4 class="problem-h"><span class="num">6</span> Koko Eating Bananas
+    <h4 class="problem-h"><span class="num">11</span> Koko Eating Bananas
       <a class="lc" href="https://leetcode.com/problems/koko-eating-bananas/" target="_blank" rel="noopener">LC 875 ↗</a>
       <span class="pill diff-medium">Medium</span>
       <span class="badge b-core">⚪ Core</span>
     </h4>
-    <p class="oneline"><strong>Problem.</strong> Given banana piles and h hours, find the minimum integer eating speed k (bananas/hour, one pile at a time) so Koko finishes all piles within h hours.</p>
-    <div class="block insight"><strong>💡 Key insight — binary search on the answer.</strong> Hours-needed is <em>monotone</em> in speed: a faster Koko never needs more hours, so feasible speeds form a suffix <code>[answer..maxPile]</code>. You don't search the piles — you search the <strong>candidate speeds</strong> and ask "does speed k finish in ≤ h hours?"</div>
+    <p class="oneline"><strong>Problem.</strong> Given banana piles and <code>h</code> hours, find the minimum integer eating speed <code>k</code> (bananas/hour, one pile at a time) that finishes all piles within <code>h</code> hours.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Hours-needed is monotone in speed <code>k</code>: a faster Koko never needs more hours, so feasible speeds form a suffix <code>[answer .. maxPile]</code>. This is the canonical <strong>binary-search-on-the-answer</strong> problem — search the smallest <code>k</code> whose total hours <code>&lt;= h</code>. A pile of size <code>p</code> at speed <code>k</code> costs <code>ceil(p / k) = (p + k - 1) / k</code> hours.</div>
     <div class="block approach"><strong>🛠️ Approach.</strong><ol>
-      <li>Set <code>lo = 1</code>, <code>hi = max(piles)</code> (no point eating faster than the biggest pile).</li>
-      <li>Converge: for <code>mid</code>, compute <code>hoursNeeded = Σ ceil(p / mid)</code>. If <code>≤ h</code>, it's feasible, so try slower (<code>hi = mid</code>); else need faster (<code>lo = mid+1</code>).</li>
-      <li><code>ceil(p / k)</code> is computed as <code>(p + k - 1) / k</code> to avoid floating point. Return <code>lo</code>.</li>
+      <li>Bounds: <code>lo = 1</code>, <code>hi = max(piles)</code> (no point eating faster than the biggest pile).</li>
+      <li>For each candidate <code>mid</code>, compute total hours via <code>hoursNeeded</code> summing <code>(p + mid - 1) / mid</code>.</li>
+      <li>If <code>hoursNeeded &lt;= h</code> the speed works — <code>hi = mid</code> (search smaller); else <code>lo = mid + 1</code>. Return <code>lo</code>.</li>
     </ol></div>
-    <p class="cx"><span class="chip time">⏱️ Time O(n·log P) — P = max pile; feasibility scans n piles per search step</span> <span class="chip space">💾 Space O(1) — running counters</span></p>
-    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> This is the canonical <em>binary-search-on-answer</em> template — the array is the input to <code>feasible</code>, not the thing you bisect. Accumulate hours in a <code>long</code>: a 10<sup>9</sup> pile at speed 1 alone overflows <code>int</code>. Use the integer-ceil trick <code>(p+k-1)/k</code>, never <code>Math.ceil((double)p/k)</code> which loses precision at scale. <code>lo</code> starts at 1, not 0 (speed 0 is meaningless).</div>
-    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "The total hours decrease monotonically as speed rises, so I binary search the smallest speed that still finishes within h. My feasibility check sums the ceiling of each pile divided by the speed; if it fits in h I lower the speed, otherwise raise it. The range is 1 to the largest pile, giving O(n log maxPile)."</div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n log maxPile) — feasibility scans n piles per search step</span> <span class="chip space">💾 Space O(1) — running counters only</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Accumulate hours in a <code>long</code> — up to ~10⁴ piles of 10⁹ at speed 1 overflows <code>int</code>. Compute the ceiling with integer math <code>(p + k - 1) / k</code>, never floating point (precision + speed). Lower bound is 1, not 0 (speed 0 eats nothing). The feasibility predicate is the substance; the binary search around it is mechanical.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Total hours decreases monotonically as speed rises, so I binary search the speed range [1, maxPile] for the smallest speed that finishes within h. Feasibility is an O(n) sum of ceil(pile/speed). That turns a guess-and-check over a billion-wide range into O(n log maxPile). The only traps are using long for the hour sum and an integer ceiling."</div>
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/binarysearch/KokoEatingBananas.java" target="_blank" rel="noopener">📄 KokoEatingBananas.java</a>
   </article>
 
+  <article class="problem" data-name="capacity to ship packages within d days" data-lc="1011">
+    <h4 class="problem-h"><span class="num">12</span> Capacity To Ship Packages Within D Days
+      <a class="lc" href="https://leetcode.com/problems/capacity-to-ship-packages-within-d-days/" target="_blank" rel="noopener">LC 1011 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-tagged">🔹 Google-tagged</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Packages must ship <em>in order</em> within <code>D</code> days; find the minimum ship capacity (per-day weight limit) that achieves it.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Days-needed is monotone in capacity: a bigger ship never needs more days, so feasible capacities form a suffix <code>[answer .. sum]</code>. Binary search the smallest capacity whose greedy packing fits within <code>D</code> days. Same on-answer skeleton as Koko, with a different bounds choice: lower = <code>max(weights)</code> (a day must hold its heaviest package), upper = <code>sum(weights)</code> (one giant day).</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong><ol>
+      <li>In one pass set <code>lo = max(weights)</code> and <code>hi = sum(weights)</code>.</li>
+      <li><code>daysNeeded(capacity)</code>: greedily load packages in order; when the next would overflow <code>capacity</code>, increment days and reset the load.</li>
+      <li>If <code>daysNeeded(mid) &lt;= D</code> shrink (<code>hi = mid</code>); else grow (<code>lo = mid + 1</code>). Return <code>lo</code>.</li>
+    </ol></div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n log(sum − max)) — feasibility scans n packages per search step</span> <span class="chip space">💾 Space O(1) — running counters only</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The lower bound <em>must</em> be <code>max(weights)</code>, not 1 — a capacity below the heaviest package can never ship it, so smaller candidates aren't just slow, they're invalid. Packages ship in fixed order (it's not bin-packing / not reorderable), which is exactly why the greedy day-count is optimal and easy. Start <code>daysNeeded</code> with <code>days = 1</code> (the first day is already open). Identical structure to Koko/Split Array — recognising the family is the point.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "This is binary-search-on-the-answer again. Days needed falls monotonically as capacity rises, so I search capacities from max(weight) to sum(weight) for the smallest that fits in D days. Feasibility is a greedy in-order packing scan, O(n). Choosing the lower bound as the heaviest package is the subtle part — anything smaller can't even carry that one item."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/binarysearch/CapacityToShipPackagesWithinDDays.java" target="_blank" rel="noopener">📄 CapacityToShipPackagesWithinDDays.java</a>
+  </article>
+
   <article class="problem" data-name="split array largest sum" data-lc="410">
-    <h4 class="problem-h"><span class="num">7</span> Split Array Largest Sum
+    <h4 class="problem-h"><span class="num">13</span> Split Array Largest Sum
       <a class="lc" href="https://leetcode.com/problems/split-array-largest-sum/" target="_blank" rel="noopener">LC 410 ↗</a>
       <span class="pill diff-hard">Hard</span>
       <span class="badge b-tagged">🔹 Google-tagged</span>
     </h4>
-    <p class="oneline"><strong>Problem.</strong> Split the array into at most k non-empty contiguous subarrays so that the <em>largest</em> subarray sum is minimized; return that minimized largest sum.</p>
-    <div class="block insight"><strong>💡 Key insight — binary search on the answer (the cap).</strong> "Minimize the maximum" is monotone in the cap you allow: a bigger cap never needs more pieces. So binary search the smallest cap achievable with ≤ k subarrays, where feasibility is a greedy left-to-right sweep that opens a new piece whenever the running sum would exceed the cap.</div>
+    <p class="oneline"><strong>Problem.</strong> Split an array into at most <code>k</code> contiguous subarrays so the <em>largest</em> subarray sum is minimized; return that minimized largest sum.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> "Minimize the maximum" → binary search the answer. Minimizing the largest sum is monotone in the cap we allow: a bigger cap never needs more pieces, so search the smallest cap achievable with <code>&lt;= k</code> subarrays. Feasibility is a greedy left-to-right sweep counting pieces; the range is <code>[max element, total sum]</code>.</div>
     <div class="block approach"><strong>🛠️ Approach.</strong><ol>
-      <li>Search range <code>[max(nums), sum(nums)]</code>: the cap must fit the biggest single element, and one piece (the whole array) is always feasible.</li>
-      <li>For candidate <code>cap</code>, count <code>piecesNeeded</code> greedily: extend the current piece until adding the next element exceeds <code>cap</code>, then start a new piece.</li>
-      <li>If <code>piecesNeeded ≤ k</code>, the cap works — tighten (<code>right = cap</code>); else loosen (<code>left = cap+1</code>). Return <code>left</code>.</li>
+      <li>Bounds: <code>lo = max(nums)</code> (a single element must fit a piece), <code>hi = sum(nums)</code> (whole array in one piece). Hold <code>hi</code> and the search range as <code>long</code>.</li>
+      <li><code>piecesNeeded(cap)</code>: keep extending the current piece; when adding the next element exceeds <code>cap</code>, start a new piece (<code>pieces++</code>, reset running to that element).</li>
+      <li>If <code>piecesNeeded(cap) &lt;= k</code> the cap suffices — <code>right = cap</code>; else <code>left = cap + 1</code>. Return <code>(int) left</code>.</li>
     </ol></div>
-    <p class="cx"><span class="chip time">⏱️ Time O(n·log S) — S = total sum; greedy check scans n elements per step</span> <span class="chip space">💾 Space O(1) — running counters</span></p>
-    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Same template as Koko — the answer space is <code>[max element, total sum]</code>, and the lower bound <em>must</em> be the max element (a cap below it can never hold that element in any piece). Use <code>long</code> for <code>hi</code>/<code>cap</code>/running sum since the sum can exceed <code>int</code>. The greedy piece-count is provably optimal here (no DP needed), which is the elegance interviewers look for over the O(n²k) DP. <code>piecesNeeded</code> starts at 1, not 0.</div>
-    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "There's a DP, but the cleaner solution binary searches the answer. The largest-sum cap is monotone: a higher cap needs no more pieces, so I bisect the smallest cap that a greedy split achieves in at most k pieces. The range runs from the max element to the total sum, and each feasibility scan is O(n), giving O(n log sum)."</div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n log(sum)) — greedy check scans n elements per search step</span> <span class="chip space">💾 Space O(1) — running counters only</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> This is the same on-answer family as Koko and Capacity — Capacity-to-Ship is literally this problem with <code>k = D</code>. There's an O(n²k) interval-DP alternative; the binary-search-on-answer is the expected O(n log sum) solution and the one that impresses. Use <code>long</code> for <code>hi</code>/<code>cap</code> since the sum can exceed <code>int</code>. Lower bound is <code>max(nums)</code>, never 0 — the largest single element is an unavoidable floor on any piece's sum.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "The phrase 'minimize the largest sum' is my cue for binary-search-on-the-answer. For a candidate cap, a greedy sweep tells me the minimum pieces whose sums each stay ≤ cap; that piece count is monotone in cap. So I search caps from max-element to total-sum for the smallest cap needing ≤ k pieces — O(n log sum), versus the heavier interval DP. It's the identical engine to Koko and Capacity-to-Ship."</div>
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/binarysearch/SplitArrayLargestSum.java" target="_blank" rel="noopener">📄 SplitArrayLargestSum.java</a>
   </article>
 
   <article class="problem" data-name="median of two sorted arrays" data-lc="4">
-    <h4 class="problem-h"><span class="num">8</span> Median of Two Sorted Arrays
+    <h4 class="problem-h"><span class="num">14</span> Median of Two Sorted Arrays
       <a class="lc" href="https://leetcode.com/problems/median-of-two-sorted-arrays/" target="_blank" rel="noopener">LC 4 ↗</a>
       <span class="pill diff-hard">Hard</span>
       <span class="badge b-core">⚪ Core</span>
     </h4>
-    <p class="oneline"><strong>Problem.</strong> Find the median of two sorted arrays in O(log(min(m, n))).</p>
-    <div class="block insight"><strong>💡 Key insight.</strong> The median splits the merged array into equal-size left/right halves where every left element ≤ every right element. You only need to decide how many left-half slots come from array A (the rest come from B), so <strong>binary search that count on the smaller array</strong>. A partition is valid when <code>maxLeftA ≤ minRightB</code> and <code>maxLeftB ≤ minRightA</code>.</div>
+    <p class="oneline"><strong>Problem.</strong> Find the median of two sorted arrays in O(log(min(m, n))) — no full merge allowed.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> The median splits the merged array into equal-size left and right halves where every left element <code>&lt;=</code> every right element. You only choose how many of the left-half slots come from array <code>A</code>; the rest come from <code>B</code>. Binary search that count on the <em>smaller</em> array: a partition is valid when <code>maxLeftA &lt;= minRightB</code> and <code>maxLeftB &lt;= minRightA</code>.</div>
     <div class="block approach"><strong>🛠️ Approach.</strong><ol>
-      <li>Ensure A is the shorter array (swap if not). Let <code>half = (m+n+1)/2</code> = size of the combined left half.</li>
-      <li>Binary search <code>i</code> = count taken from A on the left over <code>[0, m]</code>; then <code>j = half - i</code> from B. Use ±∞ sentinels when <code>i</code> or <code>j</code> hits an array edge.</li>
-      <li>If valid: odd total → <code>max(maxLeftA, maxLeftB)</code>; even → average that with <code>min(minRightA, minRightB)</code>. If <code>maxLeftA &gt; minRightB</code>, move <code>i</code> left; else move it right.</li>
+      <li>Recurse to ensure <code>a</code> is the shorter array. Let <code>half = (m + n + 1) / 2</code> = size of the combined left half.</li>
+      <li>Binary search <code>i</code> (elements taken from <code>a</code>) over <code>[0, m]</code>; set <code>j = half - i</code>. Use <code>±∞</code> sentinels for partitions at an edge (<code>i==0</code>, <code>i==m</code>, <code>j==0</code>, <code>j==n</code>).</li>
+      <li>If <code>maxLeftA &lt;= minRightB &amp;&amp; maxLeftB &lt;= minRightA</code>: odd total → return <code>max(maxLeftA, maxLeftB)</code>; even → average that with <code>min(minRightA, minRightB)</code>. If <code>maxLeftA &gt; minRightB</code> took too much from <code>a</code> (<code>hi = i - 1</code>); else <code>lo = i + 1</code>.</li>
     </ol></div>
-    <p class="cx"><span class="chip time">⏱️ Time O(log min(m, n)) — bisect the partition on the shorter array</span> <span class="chip space">💾 Space O(1) — constant scalars</span></p>
-    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Always binary search the <em>smaller</em> array so the partition index range is minimized and <code>j = half - i</code> stays valid. <code>half = (m+n+1)/2</code> with the <code>+1</code> makes the formula work uniformly for odd and even totals (odd → median is the left half's max). The ±∞ sentinels (<code>Integer.MIN/MAX_VALUE</code>) handle empty-side partitions; forgetting them is the #1 bug. The loop uses inclusive <code>lo &lt;= hi</code> because a valid partition can sit at either endpoint.</div>
-    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Instead of merging, I find a partition: take i elements from the smaller array and the rest of the left half from the other, so that everything left is ≤ everything right. I binary search i; when the cross-boundary inequalities hold I read off the median from the boundary elements, using ±∞ sentinels at the edges. Bisecting the shorter array gives O(log min(m,n))."</div>
+    <p class="cx"><span class="chip time">⏱️ Time O(log(min(m, n))) — binary search the partition on the shorter array</span> <span class="chip space">💾 Space O(1) — constant scalars</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Always binary search the <em>shorter</em> array (the recursive swap) so <code>j = half - i</code> never goes out of range. The <code>(m + n + 1) / 2</code> form puts the extra element on the left for odd totals, which lets odd/even share one partition test. The <code>Integer.MIN/MAX_VALUE</code> sentinels are what make edge partitions (one array fully on a side) just work — forgetting them is the classic bug. This searches a <em>partition index</em>, not a value — a subtler binary search than the rest of the chapter, which is why it's a Hard.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Instead of merging, I look for the partition that cuts both arrays into a combined left and right half of equal size with left ≤ right across the boundary. I only decide how many come from the smaller array and binary search that count; the cross-checks maxLeftA ≤ minRightB and maxLeftB ≤ minRightA tell me which way to move. Infinity sentinels handle edge partitions. That's O(log min(m,n))."</div>
     <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/binarysearch/MedianOfTwoSortedArrays.java" target="_blank" rel="noopener">📄 MedianOfTwoSortedArrays.java</a>
   </article>
 
   <div class="panel practice">
     <h3>🔁 Practice plan</h3>
-    <p>Build from the boundary template outward. Re-derive from a blank file in this order: <strong>Sqrt(x)</strong> (last-true predicate + overflow cast) → <strong>Find First/Last</strong> (lowerBound and the <code>target+1</code> trick) → <strong>Find Peak</strong> (gradient, converge form) → <strong>Find Minimum in Rotated</strong> then <strong>Search in Rotated</strong> (compare-to-right-end, then sorted-half detection) → <strong>Koko</strong> and <strong>Split Array</strong> back-to-back to cement the <em>binary-search-on-answer</em> template (define the range, write a monotone <code>feasible</code>) → <strong>Median of Two Sorted Arrays</strong> (partition + sentinels). For Koko and Split Array especially, practice articulating the three pieces out loud: the answer range, why feasibility is monotone, and what the greedy/counting check is. Google-favourite follow-ups to rehearse: <em>Capacity to Ship Packages in D Days</em> (LC 1011, same answer-search template), <em>Search in Rotated Sorted Array II</em> (LC 81, duplicates → O(n) worst case), and <em>Kth Smallest Element in a Sorted Matrix</em> (LC 378, binary search on value + count).</p>
+    <p>Drill in two tracks. <strong>Track A — index search:</strong> from a blank file re-derive the half-open <code>lowerBound</code> until it's muscle memory, then layer rotation onto it (33 → 81 → 153) and the matrix variants (74 → 240). <strong>Track B — search on the answer:</strong> solve Koko (875) first, then prove to yourself that Capacity (1011) and Split Array (410) are the <em>same code</em> with a swapped <code>feasible</code> — being able to say "this is the Koko family" out loud is the L6 signal. Save Median (4) for last; re-derive the partition invariant on paper before touching the keyboard. Google-favourite follow-ups to rehearse: <em>Search a 2D Matrix II</em> (staircase vs. per-row search), <em>Find the Duplicate Number</em> (count-on-value vs. Floyd's cycle), and <em>Find K Closest Elements</em> (edge search vs. two-pointer shrink).</p>
     <ul class="checklist">
-      <li>✅ I can write the converge-to-one (<code>lo &lt; hi</code>) and last-true (<code>lo &lt;= hi</code> + ans) templates from memory and say when to use each.</li>
-      <li>✅ I can recognize "minimize the maximum / maximize the minimum" as a binary-search-on-answer signal and name the range + feasibility check.</li>
-      <li>✅ I can explain why Koko's and Split Array's feasibility predicates are monotone, and write their greedy checks with <code>long</code> safety.</li>
-      <li>✅ I can detect the sorted half in a rotated array and pick the correct strict/non-strict range inequalities.</li>
-      <li>✅ I can justify comparing mid to the <em>right</em> end in Find Minimum and why that handles no-rotation.</li>
-      <li>✅ I can derive Median of Two Sorted Arrays' partition condition and explain the ±∞ sentinels and the <code>(m+n+1)/2</code> half.</li>
-      <li>✅ I can name where integer overflow bites (mid·mid, summed hours, total sum) and how the casts prevent it.</li>
+      <li>✅ I can write the half-open <code>[lo, hi)</code> lower-bound template — and the converge-to-one <code>while (lo &lt; hi)</code> peak/min variant — from memory, and explain the <code>&lt;</code> vs <code>&lt;=</code> and <code>mid</code> vs <code>mid±1</code> choices.</li>
+      <li>✅ Given "minimize the maximum" or "smallest k such that…", I instantly reach for binary-search-on-the-answer and can state the monotone predicate plus the tightest <code>lo</code>/<code>hi</code> bounds.</li>
+      <li>✅ I can explain why rotated search keeps one sorted half, and why duplicates (LC 81) force the <code>lo++; hi--</code> trim and an O(n) worst case.</li>
+      <li>✅ I can justify the top-right corner in LC 240 and why it beats per-row binary search (O(m+n) vs O(m log n)).</li>
+      <li>✅ I can solve Find-the-Duplicate by binary-searching the value range with a count-≤-mid predicate, and name Floyd's cycle detection as the O(n) alternative.</li>
+      <li>✅ I can derive the Median-of-Two-Sorted-Arrays partition, explain the <code>±∞</code> sentinels, and say why I search the shorter array.</li>
+      <li>✅ I always guard integer overflow: <code>lo + (hi - lo) / 2</code> for mid, <code>long</code> for sums/products (Sqrt, Koko, Split Array), and an integer ceiling <code>(p + k - 1) / k</code>.</li>
     </ul>
   </div>
 </section>
@@ -5014,6 +5396,168 @@ boolean union(int[] p, int[] rk, int a, int b) {
   </div>
 </section>
 
+<section class="chapter" id="toposort" data-title="Topological Sort">
+  <h2 class="chapter-title"><span class="emoji">🪢</span> Topological Sort</h2>
+  <p class="lede">Topological sort linearises a directed acyclic graph so every edge points forward — the canonical answer whenever a problem is really "order things subject to <em>X must come before Y</em>." It's high-ROI for Google L6 because the pattern hides behind build systems, course/task schedulers, dependency resolution, and "is this even possible?" cycle checks, and the senior signal is recognising it under disguise and reaching for Kahn's indegree-BFS without hesitation. Two more topo-sort problems live in the <strong>Graphs</strong> chapter — <em>Course Schedule</em> (LC 207, pure cycle detection) and <em>Alien Dictionary</em> (LC 269, deriving the order from constraints) — so treat this chapter together with those.</p>
+  <p class="source">Source: <em>High-ROI Staff gap (curated 2026)</em> · <span class="count">3 problems</span></p>
+
+  <div class="panel">
+    <h3>🎯 Recognition signals</h3>
+    <ul class="signals">
+      <li>"A must be done before B" / prerequisites / dependencies → directed edge, then topo order.</li>
+      <li>"Return any valid order" or "is a valid order possible?" → topo sort, where impossibility means a cycle.</li>
+      <li>Build order, task scheduling, compile order, package/version resolution → DAG linearisation.</li>
+      <li>"Minimise tree height by choosing a root" / "find the centroid(s)" → the leaf-trimming variant of topo sort.</li>
+      <li>Nested ordering — items grouped, and groups themselves ordered → two layered topological sorts.</li>
+      <li>You need to <em>detect</em> a cycle in a directed graph → Kahn's: if the emitted order is shorter than the node count, a cycle exists.</li>
+    </ul>
+  </div>
+
+  <div class="panel">
+    <h3>🧠 Core idea &amp; template</h3>
+    <p><strong>Two equivalent engines.</strong> <em>Kahn's BFS</em> tracks each node's indegree (number of unmet prerequisites); seed a queue with the indegree-0 nodes, and each time you pop a node, decrement its neighbours' indegrees, enqueuing any that hit 0. <em>DFS post-order</em> instead recurses fully into a node's descendants and pushes the node only on the way out, then reverses the post-order. Both are O(V+E); Kahn's is usually the cleaner interview default because it gives cycle detection for free and avoids recursion limits.</p>
+    <p><strong>Cycle detection.</strong> In Kahn's, nodes inside a cycle never reach indegree 0, so if the produced order contains fewer than V nodes, the graph has a cycle (no valid topological order). In DFS you'd instead colour nodes white/grey/black and flag a back-edge to a grey node.</p>
+    <pre class="code"><code>// Kahn's BFS topological sort with built-in cycle detection.
+int[] topoSort(int n, int[][] edges) {          // edge [u, v] means u must precede v
+    List&lt;List&lt;Integer&gt;&gt; adj = new ArrayList&lt;&gt;();
+    for (int i = 0; i &lt; n; i++) adj.add(new ArrayList&lt;&gt;());
+    int[] indeg = new int[n];
+    for (int[] e : edges) { adj.get(e[0]).add(e[1]); indeg[e[1]]++; }
+
+    Deque&lt;Integer&gt; q = new ArrayDeque&lt;&gt;();
+    for (int i = 0; i &lt; n; i++) if (indeg[i] == 0) q.offer(i);  // no prerequisites
+
+    int[] order = new int[n];
+    int k = 0;
+    while (!q.isEmpty()) {
+        int u = q.poll();
+        order[k++] = u;                                        // safe to place now
+        for (int v : adj.get(u))
+            if (--indeg[v] == 0) q.offer(v);                   // unlocked its last prereq
+    }
+    return k == n ? order : new int[0];                        // shortfall == cycle
+}
+
+// Leaf-trimming variant (undirected): peel degree-1 nodes layer by layer until &lt;= 2 remain.
+Deque&lt;Integer&gt; leaves = new ArrayDeque&lt;&gt;();
+for (int i = 0; i &lt; n; i++) if (degree[i] == 1) leaves.offer(i);
+int remaining = n;
+while (remaining &gt; 2) {
+    int sz = leaves.size(); remaining -= sz;                   // trim a whole layer
+    for (int i = 0; i &lt; sz; i++)
+        for (int nb : adj.get(leaves.poll()))
+            if (--degree[nb] == 1) leaves.offer(nb);
+}
+// survivors == the 1 or 2 centroids</code></pre>
+  </div>
+
+  <div class="panel">
+    <h3>🗺️ Problems at a glance</h3>
+    <table class="glance">
+      <thead><tr><th>#</th><th>Problem</th><th>LC</th><th>Diff</th><th>Priority</th><th>Technique</th><th>Time</th><th>Space</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>Course Schedule II</td>
+            <td><a class="lc" href="https://leetcode.com/problems/course-schedule-ii/" target="_blank" rel="noopener">LC 210 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-fav">⭐ Google fav</span></td>
+            <td>Kahn's BFS + cycle check</td><td>O(V + E)</td><td>O(V + E)</td></tr>
+        <tr><td>2</td><td>Minimum Height Trees</td>
+            <td><a class="lc" href="https://leetcode.com/problems/minimum-height-trees/" target="_blank" rel="noopener">LC 310 ↗</a></td>
+            <td><span class="pill diff-medium">Medium</span></td>
+            <td><span class="badge b-tagged">🔹 Google-tagged</span></td>
+            <td>Topological leaf-trimming (centroids)</td><td>O(n)</td><td>O(n)</td></tr>
+        <tr><td>3</td><td>Sort Items by Group</td>
+            <td><a class="lc" href="https://leetcode.com/problems/sort-items-by-group/" target="_blank" rel="noopener">LC 1203 ↗</a></td>
+            <td><span class="pill diff-hard">Hard</span></td>
+            <td><span class="badge b-sig">🟦 Google signature</span></td>
+            <td>Two-level (groups + items) Kahn's</td><td>O(n + m + E)</td><td>O(n + m + E)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="deep-h">📘 Deep dive</h3>
+
+  <article class="problem" data-name="course schedule ii" data-lc="210">
+    <h4 class="problem-h"><span class="num">1</span> Course Schedule II
+      <a class="lc" href="https://leetcode.com/problems/course-schedule-ii/" target="_blank" rel="noopener">LC 210 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-fav">⭐ Google fav</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Given <code>numCourses</code> and prerequisite pairs, return any valid order to take all courses, or an empty array if no order exists.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> A prerequisite <code>[a, b]</code> is a directed edge <code>b → a</code> ("take b before a"), and any valid study plan is exactly a topological order of that graph. Kahn's BFS emits a course the moment its last remaining prerequisite is satisfied (its indegree hits 0); a cycle leaves some courses stuck above indegree 0 forever, which surfaces as a too-short order.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong>
+      <ol>
+        <li>Build adjacency lists and an indegree array; for each pair <code>[a, b]</code> add edge <code>b → a</code> and increment <code>indegree[a]</code>.</li>
+        <li>Seed a queue with every course whose indegree is 0 (no prerequisites).</li>
+        <li>Pop a course, append it to the order, and decrement each successor's indegree; enqueue any successor that reaches 0.</li>
+        <li>If the order ends up with all <code>numCourses</code> entries, return it; otherwise a cycle blocked some courses, so return an empty array.</li>
+      </ol>
+    </div>
+    <p class="cx"><span class="chip time">⏱️ Time O(V + E) — each course and each prerequisite edge touched once</span> <span class="chip space">💾 Space O(V + E) — adjacency lists plus indegree array, queue, and output</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> Edge direction is the classic trap: <code>[a, b]</code> means <code>b → a</code>, not <code>a → b</code> — reverse it and you topo-sort the wrong graph. The cycle signal is the length check (<code>idx == numCourses</code>), not a separate traversal. Don't forget isolated courses with no prerequisites — they start at indegree 0 and must be seeded. Course Schedule I (LC 207) is the same machinery but only asks the yes/no feasibility, so reuse this and just return the boolean.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Each prerequisite is a directed edge, and I need a linear order respecting all of them — that's a topological sort. I'll use Kahn's algorithm: count incoming prerequisites per course, start with the zero-prerequisite courses, and repeatedly take a course and 'release' its dependents by dropping their indegree, enqueuing any that hit zero. If I manage to emit all courses I have a valid plan; if I get stuck short, there's a cycle and it's impossible. It's O(V+E) because every node and edge is processed once."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/toposort/CourseScheduleII.java" target="_blank" rel="noopener">📄 CourseScheduleII.java</a>
+  </article>
+
+  <article class="problem" data-name="minimum height trees" data-lc="310">
+    <h4 class="problem-h"><span class="num">2</span> Minimum Height Trees
+      <a class="lc" href="https://leetcode.com/problems/minimum-height-trees/" target="_blank" rel="noopener">LC 310 ↗</a>
+      <span class="pill diff-medium">Medium</span>
+      <span class="badge b-tagged">🔹 Google-tagged</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Given an undirected tree on <code>n</code> nodes, return all roots that minimise the resulting tree's height (there are 1 or 2 such centroids).</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> Rooting at a graph <em>centroid</em> minimises height, and a tree has at most two centroids. Find them by topological leaf-trimming: a degree-1 node (leaf) can only make the tree taller, so peel off all current leaves layer by layer like an onion; whatever survives when ≤ 2 nodes remain are exactly the centroids.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong>
+      <ol>
+        <li>Handle <code>n == 1</code> (return <code>[0]</code>) and <code>n == 2</code> (return <code>[0, 1]</code>) directly.</li>
+        <li>Build undirected adjacency lists and a degree array.</li>
+        <li>Seed a queue with all current leaves (degree 1).</li>
+        <li>While more than 2 nodes remain, trim a <em>whole layer</em>: record the layer size, subtract it from <code>remaining</code>, and for each leaf decrement its neighbours' degrees, enqueuing any neighbour that drops to degree 1.</li>
+        <li>The 1 or 2 nodes left in the queue are the centroids.</li>
+      </ol>
+    </div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n) — each node and undirected edge is removed once</span> <span class="chip space">💾 Space O(n) — adjacency lists, degree array, leaf frontier</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> You must trim <em>layer by layer</em> (snapshot <code>leaves.size()</code> before the inner loop) — peeling one node at a time and re-checking miscounts the rounds and can return the wrong centroids. Don't forget the <code>n == 1</code> / <code>n == 2</code> base cases; with <code>n == 2</code> both endpoints have degree 1 and the loop would over-trim. The stop condition is <code>remaining &gt; 2</code> (not <code>&gt; 1</code>) because there can legitimately be two centroids. This is undirected "indegree" = degree, a leaf-pruning cousin of Kahn's.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Trying every root is O(n²); instead I use the fact that the best roots are the tree's centroids, of which there are at most two. Leaves are never centroids, so I repeatedly strip the outer layer of leaves, exactly like topological pruning on an undirected graph using degree instead of indegree. When two or fewer nodes are left, those are the centroids. Each node and edge is removed once, so it's linear."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/toposort/MinimumHeightTrees.java" target="_blank" rel="noopener">📄 MinimumHeightTrees.java</a>
+  </article>
+
+  <article class="problem" data-name="sort items by group" data-lc="1203">
+    <h4 class="problem-h"><span class="num">3</span> Sort Items by Group
+      <a class="lc" href="https://leetcode.com/problems/sort-items-by-group/" target="_blank" rel="noopener">LC 1203 ↗</a>
+      <span class="pill diff-hard">Hard</span>
+      <span class="badge b-sig">🟦 Google signature</span>
+    </h4>
+    <p class="oneline"><strong>Problem.</strong> Order <code>n</code> items so that (a) all dependencies <em>before → item</em> are respected and (b) items in the same group are contiguous; return any valid order or empty if impossible.</p>
+    <div class="block insight"><strong>💡 Key insight.</strong> The "same group must be contiguous" constraint decomposes the problem into <em>two nested</em> topological sorts. Each dependency becomes an edge between the two items' <em>groups</em> when they differ (ordering the groups) or an edge between the two <em>items</em> when they share a group (ordering within the group). Sort the groups, sort the items inside each group, then emit items group-by-group in group order.</div>
+    <div class="block approach"><strong>🛠️ Approach.</strong>
+      <ol>
+        <li><strong>Make grouping total:</strong> give each ungrouped item (<code>-1</code>) its own fresh unique group id, so "every item belongs to exactly one group" holds.</li>
+        <li>For each dependency <code>before → i</code>: if <code>group[before] != group[i]</code> add a <em>group</em>-graph edge and bump that group's indegree; otherwise add an <em>item</em>-graph edge and bump that item's indegree.</li>
+        <li>Run Kahn's topo sort on the group graph and on the item graph; if <em>either</em> returns null (cycle), the whole thing is impossible → empty array.</li>
+        <li>Bucket the globally item-sorted list by group (preserving intra-group order), then concatenate buckets in group-topo order to build the result.</li>
+      </ol>
+    </div>
+    <p class="cx"><span class="chip time">⏱️ Time O(n + m + E) — n items, m groups, E dependency edges, each processed once</span> <span class="chip space">💾 Space O(n + m + E) — two sets of adjacency lists, indegree arrays, per-group buckets</span></p>
+    <div class="block gotcha"><strong>⚠️ Gotchas.</strong> The make-grouping-total step is the unlock — without giving <code>-1</code> items unique groups, you can't treat grouping uniformly and contiguity breaks. A cycle can hide at <em>either</em> level (between groups <em>or</em> within a group), so check both topo sorts. When bucketing, iterate over the <em>item-topo order</em> so each bucket keeps valid intra-group ordering, then walk groups in <em>group-topo order</em> — mixing these two orderings up is the subtle bug. Edge direction follows <code>beforeItems.get(i)</code>: those items come <em>before</em> <code>i</code>, i.e. <code>before → i</code>.</div>
+    <div class="block narrate"><strong>🗣️ Explain out loud.</strong> "Contiguity-by-group plus per-item dependencies is really a two-layer ordering problem. First I give each ungrouped item its own singleton group so every item has exactly one group. Then each dependency either constrains the order of two groups, if the items are in different groups, or the order of two items inside one group. I topologically sort the groups and, separately, the items; a cycle in either makes it impossible. Finally I emit items by walking the groups in their topo order and, within each group, the items in their topo order. Everything is touched once, so O(n + m + E)."</div>
+    <a class="codelink" href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/blob/main/src/main/java/org/example/toposort/SortItemsByGroups.java" target="_blank" rel="noopener">📄 SortItemsByGroups.java</a>
+  </article>
+
+  <div class="panel practice">
+    <h3>🔁 Practice plan</h3>
+    <p>Lock in Kahn's algorithm on <strong>Course Schedule II</strong> first until building the indegree array, seeding the queue, and reading the length-shortfall cycle signal are automatic — that template is 80% of every topo problem. Then internalise the leaf-trimming reframing with <strong>Minimum Height Trees</strong> (degree-as-indegree, peel by layers). Finish with <strong>Sort Items by Group</strong> to practise <em>composing</em> two topo sorts and the make-grouping-total trick. Re-derive each from a blank file and say the cycle-detection argument out loud every time.</p>
+    <ul class="checklist">
+      <li>✅ I can write Kahn's BFS from scratch and explain why a short output means a cycle.</li>
+      <li>✅ I can state the difference between Kahn's BFS and DFS post-order topo sort and when I'd pick each.</li>
+      <li>✅ I can get the prerequisite edge direction right without second-guessing.</li>
+      <li>✅ I can explain why leaf-trimming finds the 1–2 centroids and why I trim a whole layer at a time.</li>
+      <li>✅ I can decompose Sort Items into a group-level and an item-level topo sort and justify the unique-group trick.</li>
+      <li>✅ Follow-ups rehearsed: Course Schedule (207, feasibility), Alien Dictionary (269, derive order) — both in the Graphs chapter — and Parallel Courses (1136, count topo layers).</li>
+    </ul>
+  </div>
+</section>
+
 <section class="chapter" id="advancedgraphs" data-title="Advanced Graphs (L6 Differentiators)">
   <h2 class="chapter-title"><span class="emoji">🚀</span> Advanced Graphs (L6 Differentiators)</h2>
   <p class="lede">This is the family that separates a strong L5 from an L6: weighted shortest paths (Dijkstra), bridge/articulation detection (Tarjan), connectivity tallies via union-find, and full-game solving by retrograde DP. Each problem is really a clean classic dressed in a story — the differentiator is recognizing the classic fast and narrating <em>why</em> the algorithm is correct, not just coding it.</p>
@@ -7067,7 +7611,7 @@ boolean remove(int v) {
 
 
     <div class="tofoot">
-      Built from the <a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/raw/main/google_l6_prep_tracker.xlsx">Google L6 Prep Tracker</a> · 197 solutions · <a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">source on GitHub</a><br>
+      Built from the <a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep/raw/main/google_l6_prep_tracker.xlsx">Google L6 Prep Tracker</a> · 211 solutions · <a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">source on GitHub</a><br>
       Sources: <em>Prep Tracker</em>, <em>Deep Research Adds</em>, <em>Study Plan</em> &amp; <em>Progress</em> tabs.
     </div>
   </main>
