@@ -1,0 +1,415 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>B07 — Design a feature-flag / experimentation platform</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="index.html">&larr; All system-design questions</a><article class="doc"><h1>B07 — Design a feature-flag / experimentation platform</h1>
+<p>Design the system that lets every service at the company gate behavior behind flags — turning features on/off, targeting cohorts, ramping rollouts by percentage, and running A/B experiments — all read on the <strong>hot path of every request</strong> with sub-millisecond overhead. It tests a core Developer-Experience primitive: a flag store, a targeting-rule engine, <strong>gradual rollout / bucketing</strong>, <strong>ultra-low-latency edge reads</strong>, an audit log, a global <strong>kill-switch</strong>, and consistent flag propagation. Google asks it because safe, incremental rollout and online experimentation are how large orgs ship without breaking things — it's a platform + infra-governance problem, exactly the Staff sweet spot.</p>
+<h2>(Section B only) Lead with this — your résumé hook</h2>
+<p>"I've owned platform and infra-governance primitives, and a feature-flag/experimentation system is the highest-leverage one — it's how thousands of engineers ship safely without coordinating deploys, and it's read on literally every request, so the design constraint is brutal: targeting and rollout logic must add <strong>near-zero latency</strong> and <strong>never take the request down</strong>. I'll design it so flag evaluation happens <strong>locally in the SDK against a cached ruleset</strong> (no network call per flag), with a fast propagation path for changes, a hard kill-switch, and a full audit trail. I'll spend my depth budget on low-latency reads + safe propagation and on percentage bucketing for experiments, since those are where correctness and trust live."</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>Flag types:</strong> Boolean kill-switches only, or also multivariate flags, config values, and full A/B experiments with metrics? Experiments add a metrics-analysis pipeline; pure flags don't.</li>
+<li><strong>Evaluation location:</strong> Server-side SDKs, client-side (browser/mobile), or both? Client-side changes the trust/security model (can't ship targeting secrets to the browser) and the propagation latency.</li>
+<li><strong>Latency budget:</strong> What overhead per flag check is acceptable? I'll assume it must be <strong>effectively zero (local, in-memory)</strong> — a network call per flag on every request is a non-starter.</li>
+<li><strong>Scale:</strong> How many flags, services, evaluations/sec? Flag <em>evaluations</em> dwarf flag <em>changes</em> by many orders of magnitude (reads vs writes).</li>
+<li><strong>Targeting richness:</strong> Just % rollout, or attribute-based rules (country, app version, user tier, custom attributes)? Drives the rule-engine complexity.</li>
+<li><strong>Propagation SLO:</strong> When I flip a kill-switch, how fast must it take effect everywhere — seconds? This sets whether I need streaming/push vs polling.</li>
+<li><strong>Consistency needs:</strong> Is it OK if different servers see a flag change a few seconds apart (eventual), or must a flip be globally atomic? Atomicity is expensive; usually eventual + fast is right, <em>except</em> for kill-switches.</li>
+<li><strong>Stickiness:</strong> Must a user stay in the same bucket/variant across requests and devices (for clean experiments)? This forces deterministic hashing, not random assignment.</li>
+<li><strong>Audit / compliance:</strong> Who can change what; do we need a full change history and approvals? This is the governance angle (and a real requirement at scale).</li>
+<li><strong>Failure behavior:</strong> If the flag system is unreachable, what should a service do — fail open to last-known-good, or fail to a safe default? (Always last-known-good / default — flags must never block the request.)</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> They want to hear that <strong>flag evaluation is local and in-memory</strong> (SDK-side against a cached ruleset), not a remote call per flag — that's the defining insight. The propagation/consistency question is the tell: you must articulate <em>eventual consistency with fast push, plus a hard kill-switch path</em>, and that the system <strong>fails safe</strong> (never takes down the caller). Asking about stickiness/deterministic bucketing signals you understand experimentation correctness, not just on/off toggles.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In scope:</strong>
+- <strong>Flag store:</strong> create/read/update flags (boolean, multivariate, config values) with metadata.
+- <strong>Targeting rules:</strong> evaluate attribute-based rules (country, version, user tier, custom attributes) to decide a flag's value per context.
+- <strong>Gradual rollout / % bucketing:</strong> deterministically assign a stable percentage of users to a variant; ramp 1% → 5% → 50% → 100%.
+- <strong>Low-latency edge/SDK reads:</strong> flag evaluation adds near-zero latency (local, in-memory ruleset).
+- <strong>Fast propagation:</strong> flag changes reach all evaluators within seconds.
+- <strong>Kill-switch:</strong> instantly disable a feature globally, with the highest-priority propagation.
+- <strong>Audit log:</strong> immutable history of who changed which flag, when, and why; approvals/RBAC.
+- <strong>Experiment metrics:</strong> record exposures (who saw what variant) and feed a metrics pipeline to measure impact with statistical rigor.
+- <strong>Consistency of propagation:</strong> every evaluator converges to the same ruleset version.</p>
+<p><strong>Out of scope (defer):</strong>
+- The full statistics engine for experiment significance (I'll define the exposure-logging contract and hand off to an analytics pipeline).
+- Deploy/release orchestration (flags decouple <em>release</em> from <em>deploy</em>, but I'm not designing CD).
+- Authn/identity provider internals (assume one exists for RBAC).
+- Front-end UI design beyond the management API.
+- Long-term experiment data warehousing internals.</p>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>~10,000 services/instances; ~100k flags; <strong>flag evaluations on every request → tens of millions/sec org-wide</strong> (but local). Flag <em>changes</em>: a few thousand/day (tiny).</td>
+</tr>
+<tr>
+<td>p99 latency</td>
+<td><strong>Evaluation ≤ ~1 ms (effectively in-memory, sub-microsecond)</strong> — it's on every request. Ruleset <em>fetch</em> (background) ≤ 100 ms; propagation of a change ≤ a few seconds.</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td><strong>99.99%+ for reads, and graceful-degrade beyond that.</strong> If the control plane is down, evaluators serve last-known-good rulesets — flags must NEVER fail the caller's request.</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td><strong>Eventual</strong> for normal flag changes (servers converge within seconds). <strong>Kill-switch is fast-path / near-real-time.</strong> Bucketing is <strong>deterministic</strong> (same user → same bucket, sticky).</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>Flag definitions + audit log: <strong>durable + immutable</strong> (config of record, compliance). Cached rulesets on evaluators: ephemeral (refetchable).</td>
+</tr>
+<tr>
+<td>Read/write ratio</td>
+<td>Extremely read-heavy at evaluation; changes are rare. Optimize the read path to the extreme; the write path can be heavier.</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>RBAC + approvals on changes; never ship targeting <em>secrets</em> to client SDKs (use server-side evaluation or signed, sanitized rulesets); audit everything; per-flag change authorization to prevent unsafe rollouts.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>EVALUATIONS (reads) -- the dominant volume, but LOCAL
+  Org request rate (peak)       ~5,000,000 req/sec across all services
+  Flag checks per request       ~10  (services check many flags)
+  Flag evaluations/sec          ~50,000,000 /sec
+  =&gt; NONE of these hit a central service; they are in-memory SDK lookups.
+     Central read load = only ruleset FETCHES (see below).
+
+RULESET FETCHES (the actual network load on the control plane)
+  Evaluator instances           ~10,000 - 100,000 SDK instances
+  Poll interval (fallback)      ~30 s ; OR push on change (streaming)
+  Polling load                  100,000 / 30s = ~3,300 fetches/sec  (trivial)
+  Push model                    near-zero steady-state; spikes on change
+
+FLAG CHANGES (writes) -- rare
+  Changes/day                   ~5,000  (flips, ramps, new flags)
+  ~ 5,000 / 86400               &lt;&lt; 1 /sec average. Tiny.
+  Each change fans out to       ~100,000 evaluators within seconds.
+
+RULESET SIZE (what each evaluator caches in memory)
+  Flags                         ~100,000 total, but a service uses a subset
+  Per-flag ruleset              ~1 KB (rules + variants + rollout %)
+  Per-service relevant flags    ~1,000 -&gt; ~1 MB cached ruleset in memory
+  Full org ruleset              100k * 1KB = ~100 MB (fits easily if needed)
+
+PROPAGATION FAN-OUT (kill-switch)
+  1 change -&gt; push to ~100,000 evaluators
+  Via pub/sub fanout + CDN-style edge config: sub-second to a few seconds.
+
+EXPOSURE / METRICS (experiment logging)
+  Exposures/sec                 ~ a fraction of evaluations that are experiments
+                                 say ~1,000,000 exposures/sec logged async
+  ~1M/sec * ~200 bytes          ~200 MB/sec -&gt; Kafka -&gt; warehouse (sampled/aggregated)
+</code></pre>
+<p>The defining number: <strong>50M evaluations/sec but zero central read load</strong>, because evaluation is in-memory in the SDK. The control plane only handles <strong>~thousands of fetches/sec and &lt;1 change/sec</strong> — it's a small, highly-available config-distribution service, not a high-QPS data plane. Exposure logging is the one genuinely high-volume async stream.</p>
+<h2>5) API design</h2>
+<pre><code># Evaluation (in-process SDK call -- NO network on the hot path)
+flag.bool(&quot;checkout_v2&quot;, ctx={ user_id, country, app_version, tier }) -&gt; true
+flag.variant(&quot;ranking_exp&quot;, ctx) -&gt; &quot;treatment_b&quot;
+flag.value(&quot;max_batch_size&quot;, ctx) -&gt; 256
+  # All resolved locally against the cached ruleset. Logs an EXPOSURE async.
+
+# Ruleset distribution (SDK &lt;-&gt; control plane, background)
+GET    /v1/ruleset?service=...&amp;etag=...   # fetch latest ruleset (304 if unchanged)
+WS/SSE /v1/ruleset/stream?service=...      # push changes (kill-switch fast path)
+
+# Management plane (UI / API, RBAC-gated)
+POST   /v1/flags { key, type, variants, default }          # create
+PUT    /v1/flags/{key}/rules { targeting_rules }           # set targeting
+PUT    /v1/flags/{key}/rollout { variant, percent }        # ramp %
+POST   /v1/flags/{key}/kill                                # KILL-SWITCH (fast path)
+GET    /v1/flags/{key}/audit                               # change history
+POST   /v1/flags/{key}/approve { change_id }               # approval workflow
+
+# Experiment metrics
+POST   /v1/exposures (batch)   # async, fire-and-forget (usually inside SDK)
+GET    /v1/experiments/{id}/results   # read from analytics pipeline
+</code></pre>
+<p>Design notes: the <strong>evaluation API takes no network round-trip</strong> — it's a local function call over the cached ruleset, which is <em>the</em> latency guarantee. Ruleset fetches use <strong>ETags / version numbers</strong> (return 304 when unchanged) and a <strong>push channel</strong> for fast propagation. The management plane is heavily RBAC- and audit-gated. Exposure logging is async and must never slow or fail the evaluation.</p>
+<h2>6) Architecture — request &amp; data flow</h2>
+<h3>(a) ASCII layered diagram</h3>
+<pre><code>   APPLICATION INSTANCES (every service, every request)
+   +-------------------------------------------------+
+   |  Service code: flag.bool(&quot;x&quot;, ctx)              |
+   |        |                                        |
+   |        v                                        |
+   |  [ Flag SDK (in-process) ]                      |   &lt;-- EVALUATION IS LOCAL
+   |   - holds CACHED RULESET in memory              |       (sub-microsecond,
+   |   - evaluates targeting rules + % bucket        |        no network call)
+   |   - deterministic hash(user_id, flag) -&gt; bucket |
+   |   - emits EXPOSURE event (async, non-blocking)  |
+   +-----|----------------------------^--------------+
+         | ruleset fetch / stream     | exposures (fire-and-forget)
+         | (background, ETag/version) |
+         v                            v
+   [ Edge Config Distribution ]   [ Exposure Ingest (Kafka) ]   async, high-volume
+   - CDN / regional config cache       |
+   - serves immutable ruleset          v
+     snapshots by version          [ Metrics / Experiment Pipeline ]
+   - PUSH channel for fast prop    - aggregate exposures + outcome metrics
+         ^   |                     - significance, guardrail metrics
+         |   | new snapshot            |
+         |   v                         v
+   [ Propagation Service ]         [ Experiment Results Store ]
+   - on change: build new ruleset
+     snapshot, bump version,
+     fan-out push (kill-switch =
+     highest priority)
+         ^
+         | validated change (versioned)
+         |
+   [ Flag Control Plane / API ]   &lt;--- Engineers via UI/CLI (RBAC, approvals)
+   - CRUD flags, targeting, rollout %
+   - kill-switch endpoint (fast path)
+   - writes change + emits to propagation
+         |                 ^
+   write |                 | read config of record
+         v                 |
+   [ Flag Store (strongly consistent) ]   source of truth: flags, rules, rollout
+         |
+         v
+   [ Audit Log (append-only, immutable) ]  who/what/when/why for every change
+</code></pre>
+<p><strong>Read / evaluation path (the hot path — and it never leaves the process).</strong> Service code calls <code>flag.bool("checkout_v2", ctx)</code>. The <strong>in-process SDK</strong> evaluates entirely against its <strong>cached ruleset in memory</strong>: it runs the targeting rules against <code>ctx</code> (country, version, tier), and for percentage rollouts computes a <strong>deterministic hash(user_id, flag_salt) mod 100</strong> to decide the bucket. No network call, no lock contention — sub-microsecond. The SDK fires an <strong>exposure event</strong> asynchronously (fire-and-forget) for experiment measurement, which must never block or fail the evaluation. The SDK refreshes its ruleset in the background (poll with ETag, or subscribe to a push stream); if the control plane is unreachable, it keeps serving the <strong>last-known-good ruleset</strong> — flags degrade gracefully and never take the request down.</p>
+<p><strong>Write / change path (rare, governed, fast-propagating).</strong> An engineer changes a flag via the <strong>Control Plane</strong> (UI/CLI), gated by RBAC and approvals. The change is written to the strongly-consistent <strong>Flag Store</strong> (source of truth) and recorded in the <strong>immutable Audit Log</strong>. The <strong>Propagation Service</strong> builds a new <strong>immutable ruleset snapshot</strong>, bumps the version, and fans it out through the <strong>Edge Config Distribution</strong> layer (CDN/regional caches) plus a <strong>push channel</strong> to all evaluators. For a <strong>kill-switch</strong>, this path is highest-priority — push directly to evaluators so the feature dies everywhere within seconds, not on the next poll.</p>
+<p><strong>Why eventual consistency is acceptable (with a kill-switch exception).</strong> Normal flag changes converge across evaluators within seconds; a few servers seeing a new ramp percentage slightly before others is harmless. The one case that needs near-real-time is the kill-switch, which gets its own fast push lane. This lets the whole system run AP and degrade gracefully — exactly right for something on every request.</p>
+<h3>(b) Mermaid flowchart</h3>
+<div class="mermaid">
+flowchart TD
+  app[Service code: flag.bool ctx] --> sdk[Flag SDK in-process]
+  sdk -- cached ruleset, local eval --> app
+  sdk -. exposure async .-> ingest[[Exposure Ingest - Kafka]]
+  sdk -- fetch/stream ruleset --> edge[Edge Config Distribution + push]
+  edge --> sdk
+
+  eng[Engineers via UI/CLI] --> cp[Flag Control Plane - RBAC + approvals]
+  cp --> store[(Flag Store - strongly consistent)]
+  cp --> audit[(Audit Log - immutable)]
+  cp --> prop[Propagation Service: snapshot + version + fan-out]
+  prop --> edge
+  cp -- kill-switch fast path --> prop
+
+  ingest --> metrics[Metrics / Experiment Pipeline]
+  metrics --> results[(Experiment Results Store)]
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<p><strong>Flag definition (source of truth).</strong></p>
+<pre><code>Flag {
+  key, type: bool|multivariate|config,
+  variants: [ {name, value, weight} ],
+  default_value,                     # served if rules don't match / on error
+  targeting_rules: [ { conditions:[{attr, op, values}], serve: variant } ],
+  rollout: { variant, percent, salt },   # salt =&gt; stable, independent buckets
+  state: active|killed,
+  version, owner, updated_at
+}
+</code></pre>
+<p>Stored in a <strong>strongly-consistent relational/KV store</strong>. There are only ~100k flags and changes are rare, so write throughput is trivial; the requirement is <strong>strong consistency + integrity</strong> of the config of record (you never want two conflicting "truths" for a flag). This is config, not high-QPS data.</p>
+<p><strong>Ruleset snapshot (what's distributed).</strong> An <strong>immutable, versioned blob</strong> per service (or global) compiled from all relevant flags. Stored in an <strong>edge/CDN config cache</strong> keyed by version. Immutability + versioning is what makes propagation safe and cacheable: evaluators atomically swap from version N to N+1, and rollback is just "serve version N again." Served from object storage / CDN, replicated globally for locality.</p>
+<p><strong>Audit log.</strong> <strong>Append-only, immutable</strong> store (e.g. an event log + queryable index) of every change: actor, before/after, timestamp, reason, approval. Durable and tamper-evident for compliance and incident forensics. This is the governance backbone — "who turned this on at 3am" must always be answerable.</p>
+<p><strong>Exposure / experiment events.</strong> High-volume async stream → <strong>Kafka</strong> → columnar <strong>warehouse</strong> (sampled/aggregated). Exposures record <code>(user, flag, variant, timestamp)</code>; the metrics pipeline joins them with outcome metrics. This is the only genuinely high-throughput data store in the system; it's write-heavy, append-only, analytics-read — a perfect log + warehouse fit, decoupled from the hot evaluation path.</p>
+<p><strong>SDK in-memory ruleset.</strong> A compact in-process structure (hash map flag_key → compiled rules) — ephemeral, refetchable, optimized for sub-microsecond lookup. No durability needed; it's a cache of the snapshot.</p>
+<p>Justification theme: <strong>separate the config of record (small, strongly consistent, durable) from the evaluation cache (in-memory, ephemeral, ultra-fast) from the exposure stream (high-volume, async, analytics)</strong>. Three very different stores because they have three very different access patterns — collapsing them is the classic mistake.</p>
+<h2>8) Deep dive</h2>
+<h3>Deep dive 1: Low-latency reads + safe, consistent propagation (the crux)</h3>
+<p>This is the defining constraint: flags are read on every request, so evaluation must be free, yet a kill-switch must take effect everywhere in seconds.</p>
+<ul>
+<li><strong>Evaluation is local, period.</strong> The SDK caches the ruleset in process and evaluates in memory — no network call, no shared lock on the hot path (rulesets are immutable; a refresh swaps the pointer atomically). This is what turns "50M evaluations/sec" into zero central read load. A network-per-flag design would add latency <em>and</em> a hard dependency that could take down every service — the anti-pattern to call out explicitly.</li>
+<li><strong>Background refresh with versioning.</strong> SDKs fetch rulesets with an <strong>ETag/version</strong>; the edge returns 304 when nothing changed, so steady-state cost is near zero. A new version is an <strong>immutable snapshot</strong> — evaluators atomically move N → N+1, and there's never a partially-applied ruleset.</li>
+<li><strong>Fast propagation via push + fan-out.</strong> For normal changes, polling (~30s) is fine. For a <strong>kill-switch</strong>, a <strong>pub/sub push channel</strong> notifies evaluators immediately so they pull the new snapshot within seconds. The fan-out (1 change → 100k evaluators) is handled CDN-style: tiered edge caches + pub/sub, not a thundering herd hitting the control plane.</li>
+<li><strong>Consistency model, stated crisply:</strong> <strong>eventual</strong> across evaluators (converge in seconds — fine for ramps), with the <strong>kill-switch on a fast lane</strong>. Bucketing is <strong>deterministic</strong> so even mid-propagation, a given user's variant is stable. Different servers briefly disagreeing on a 10%-vs-15% ramp is invisible; that's the deliberate AP choice.</li>
+<li><strong>Fail-safe is non-negotiable.</strong> If the control plane is unreachable, SDKs serve <strong>last-known-good</strong>; if a flag is unknown or evaluation errors, serve the <strong>flag's default</strong>. The flag system must be incapable of failing the caller's request — it's an <em>enhancement</em> to the request path, never a dependency that can break it.</li>
+</ul>
+<h3>Deep dive 2: Percentage bucketing + experiment correctness</h3>
+<p>Gradual rollout and clean A/B experiments both depend on getting bucketing exactly right — this is where subtle bugs ruin experiments and erode trust.</p>
+<ul>
+<li><strong>Deterministic hashing for stickiness.</strong> Bucket = <code>hash(user_id + flag_salt) mod 100</code>. Because it's a pure function of <code>user_id</code> and a per-flag <strong>salt</strong>, the <em>same user always lands in the same bucket</em> for a given flag — across requests, servers, and devices. That stickiness is mandatory: an experiment where users flip between control and treatment per request is statistically worthless and a terrible UX.</li>
+<li><strong>Per-flag salt → independent assignments.</strong> The salt ensures a user in the "treatment" 10% of experiment A is <em>not</em> correlated with their bucket in experiment B — independent randomization across concurrent experiments, avoiding interaction bias. Without the salt, the same users would always be in the same bucket of every experiment.</li>
+<li><strong>Monotonic ramps.</strong> Ramping 1% → 5% → 50% should keep already-included users included (the included set grows, never reshuffles). With consistent hashing on a <code>[0,100)</code> ring, "below the threshold" grows monotonically, so a user who was in at 5% stays in at 50% — no churn as you ramp.</li>
+<li><strong>Exposure logging = ground truth for analysis.</strong> The SDK logs an exposure the moment a user is <em>actually assigned</em> a variant (not merely eligible). The metrics pipeline joins exposures with outcome metrics (conversion, latency, errors) to compute lift with statistical significance, and <strong>guardrail metrics</strong> (latency, error rate, crash rate) so a bad treatment auto-alarms. Logging on assignment (not eligibility) avoids dilution bias.</li>
+<li><strong>Safety integration:</strong> ramps watch guardrail metrics; if a treatment regresses a guardrail, the platform can <strong>auto-rollback</strong> (drop to 0%) — the kill-switch and experiment system reinforce each other. This is the "ship safely" promise that makes the platform trustworthy.</li>
+</ul>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Option A</th>
+<th>Option B</th>
+<th>Choice &amp; why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Evaluation location</td>
+<td>Central service (network call/flag)</td>
+<td><strong>Local in-SDK over cached ruleset</strong></td>
+<td><strong>Local.</strong> Zero hot-path latency, no hard dependency that can take services down. Cost: propagation lag (mitigated by push).</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td>Strongly consistent global flips</td>
+<td><strong>Eventual + kill-switch fast path</strong></td>
+<td><strong>Eventual (+fast kill).</strong> A few seconds of divergence on a ramp is harmless; strong global atomicity is expensive and unnecessary except for kill-switches.</td>
+</tr>
+<tr>
+<td>Propagation</td>
+<td>Poll only</td>
+<td><strong>Poll baseline + push for urgent</strong></td>
+<td><strong>Hybrid.</strong> Polling (ETag) is cheap and robust; push gives sub-second kill-switch. Cost: maintain a streaming channel.</td>
+</tr>
+<tr>
+<td>Bucketing</td>
+<td>Random per request</td>
+<td><strong>Deterministic hash(user+salt)</strong></td>
+<td><strong>Deterministic.</strong> Sticky assignment is mandatory for valid experiments and consistent UX.</td>
+</tr>
+<tr>
+<td>Failure mode</td>
+<td>Fail closed (block)</td>
+<td><strong>Fail safe (last-known-good / default)</strong></td>
+<td><strong>Fail safe.</strong> Flags must never fail the caller's request; degrade to cached/default.</td>
+</tr>
+<tr>
+<td>Client-side flags</td>
+<td>Ship full rules to client</td>
+<td><strong>Server-side eval, or signed sanitized ruleset</strong></td>
+<td><strong>Server-side / sanitized.</strong> Never leak targeting secrets to browsers; evaluate server-side or ship only what's safe.</td>
+</tr>
+<tr>
+<td>Exposure logging</td>
+<td>Synchronous</td>
+<td><strong>Async, fire-and-forget</strong></td>
+<td><strong>Async.</strong> Must not slow or fail evaluation; lossy-but-sampled is fine for stats.</td>
+</tr>
+<tr>
+<td>Config of record</td>
+<td>One store for everything</td>
+<td><strong>Strongly-consistent flag store + immutable snapshots + async exposure stream</strong></td>
+<td><strong>Three stores.</strong> Different access patterns; separating them is the whole point.</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Control-plane outage taking down callers.</strong> The scariest failure: if services <em>depend</em> on a live flag call, a control-plane blip blacks out the org. <em>Mitigation:</em> evaluation is local + SDKs serve <strong>last-known-good</strong>; the control plane is off the request path by construction. This is designed-out, not patched.</li>
+<li><strong>Propagation thundering herd on a change.</strong> One change → 100k SDKs all refetch at once. <em>Mitigation:</em> serve immutable versioned snapshots from a <strong>CDN/edge cache</strong> (not the control plane), jittered poll intervals, and push-then-pull (notify, let SDKs pull the cached snapshot) so the origin sees one build, not 100k fetches.</li>
+<li><strong>Stale ruleset on a slow/failed refresh.</strong> An SDK could serve an old ramp. <em>Mitigation:</em> short refresh interval + version monitoring; the kill-switch push path bypasses the poll cadence for urgent changes; alert on evaluators lagging the current version.</li>
+<li><strong>Bucketing skew / non-determinism bug.</strong> A bad hash or missing salt silently corrupts every experiment. <em>Mitigation:</em> well-distributed hash, per-flag salt, and validation that bucket distributions match target percentages; treat bucketing as a tested, audited primitive.</li>
+<li><strong>Exposure pipeline overload / loss.</strong> 1M exposures/sec can swamp ingest. <em>Mitigation:</em> async fire-and-forget, sampling, backpressure on Kafka — and crucially, exposure loss degrades <em>analysis precision</em>, never the user's request.</li>
+<li><strong>Unsafe change / bad rollout.</strong> A wrong targeting rule ramps a broken feature to 100%. <em>Mitigation:</em> RBAC + approval workflow, guardrail-metric monitoring with <strong>auto-rollback</strong>, gradual ramps (so a bad change is caught at 1%), and a one-click kill-switch. This is the governance layer.</li>
+<li><strong>Audit gaps.</strong> Untracked changes break incident response and compliance. <em>Mitigation:</em> every mutation goes through the control plane and writes the immutable audit log — no out-of-band edits to the flag store.</li>
+<li><strong>Hot flag / config bloat.</strong> A few flags read on every request, or a 100k-flag ruleset bloating SDK memory. <em>Mitigation:</em> per-service ruleset scoping (only ship flags a service uses), compact compiled rules; reads are in-memory so "hot" flags cost nothing extra.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>What breaks first: propagation fan-out + exposure volume</strong>, not evaluation (evaluation is local and scales with the app fleet for free). 10x evaluators → 10x snapshot fetches and 10x exposures.</li>
+<li><strong>Propagation at 10x:</strong> push harder into a tiered CDN/edge config layer so the control plane never sees the fan-out; add regional propagation hubs so a change replicates region-to-region and SDKs pull from the nearest edge. Snapshots stay immutable + versioned, so caching is trivially correct.</li>
+<li><strong>Exposure pipeline at 10x:</strong> sampling and pre-aggregation at the edge before Kafka; tier the warehouse; the analysis only needs statistically sufficient samples, not every event — so cost grows sub-linearly with smart sampling.</li>
+<li><strong>Targeting complexity growth:</strong> as rules get richer (ML-driven targeting, segment membership computed offline), precompute segment membership into the ruleset rather than evaluating heavy predicates per request — keep the hot path a simple lookup.</li>
+<li><strong>Multi-region / global consistency:</strong> keep the flag store as the global source of truth with regional read replicas and regional propagation; accept eventual cross-region convergence (seconds), with the kill-switch fast path replicated to every region so a global "off" is fast everywhere.</li>
+<li><strong>More experiments / interaction effects:</strong> at thousands of concurrent experiments, add a layered/mutually-exclusive experiment framework (orthogonal layers via independent salts) so experiments don't contaminate each other, plus automated guardrail-based auto-rollback as standard.</li>
+<li><strong>Governance at 10x users of the platform:</strong> self-serve flag creation with policy guardrails (mandatory owners, expiry dates on temporary flags to fight flag debt, required approvals for high-traffic flags) — the infra-governance Staff angle that keeps 100k flags from becoming an unmaintainable swamp.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"Where does flag evaluation actually happen, and why?"</strong> In-process in the SDK, against a cached in-memory ruleset — zero network on the hot path. A remote call per flag would add latency and a hard dependency that could take every service down; local eval avoids both.</li>
+<li><strong>"How fast does a kill-switch take effect, and how?"</strong> Seconds. It's on a high-priority <strong>push</strong> lane (pub/sub) that notifies all evaluators immediately to pull the new immutable snapshot, instead of waiting for the next poll.</li>
+<li><strong>"What's your consistency model — is it OK for servers to disagree?"</strong> Eventual; evaluators converge within seconds. For a ramp, brief disagreement is invisible. The kill-switch gets a fast path. Bucketing is deterministic so a user's variant is stable even mid-propagation.</li>
+<li><strong>"How do you keep a user in the same A/B variant across requests and devices?"</strong> Deterministic <code>hash(user_id + flag_salt) mod 100</code> — a pure function of the user, so the same user always buckets the same way regardless of which server handles the request.</li>
+<li><strong>"Why the per-flag salt?"</strong> So bucket assignments are independent across concurrent experiments — a user in treatment for experiment A isn't correlated with their bucket in B, avoiding interaction bias. Without it, the same users sit in the same bucket of every experiment.</li>
+<li><strong>"What happens if the flag service is down?"</strong> Nothing bad for the caller: SDKs serve last-known-good rulesets; unknown flags/eval errors fall back to the flag's default. The system fails safe and is never on the critical dependency path.</li>
+<li><strong>"How do you propagate to 100k evaluators without a thundering herd?"</strong> Immutable versioned snapshots served from a CDN/edge cache (origin builds once), jittered polling, and push-then-pull so evaluators fetch the cached snapshot, not the control plane.</li>
+<li><strong>"How do you measure an experiment's impact?"</strong> SDKs log an <strong>exposure</strong> on actual variant assignment (async); a metrics pipeline joins exposures with outcome + guardrail metrics to compute lift and significance, with auto-rollback if a guardrail regresses.</li>
+<li><strong>"How do you keep this safe and governed?"</strong> RBAC + approvals on changes, immutable audit log of every mutation, gradual ramps that catch bad changes at 1%, guardrail-metric auto-rollback, and flag-expiry policies to fight flag debt.</li>
+<li><strong>"Client-side flags — what changes?"</strong> You can't ship targeting secrets to a browser; evaluate server-side or distribute only a signed, sanitized ruleset, and treat propagation latency as higher for clients.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Phase</th>
+<th>What to cover</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0-5 min</td>
+<td>Clarify</td>
+<td>Flag types (bool vs experiments), eval location (server/client), latency budget (in-memory), propagation SLO, consistency, stickiness, failure behavior (fail safe).</td>
+</tr>
+<tr>
+<td>5-8 min</td>
+<td>FR / NFR</td>
+<td>Flag store, targeting, % rollout, low-latency reads, fast propagation, kill-switch, audit, exposure metrics. NFR: ≤1ms eval, eventual + fast kill, fail-safe, 99.99%.</td>
+</tr>
+<tr>
+<td>8-13 min</td>
+<td>Estimation</td>
+<td>50M evaluations/sec but <strong>zero central read load</strong> (local SDK eval); control plane sees ~thousands of fetches/sec + &lt;1 change/sec; exposures the only high-volume stream.</td>
+</tr>
+<tr>
+<td>13-18 min</td>
+<td>API + model</td>
+<td>Local evaluation API (no network), ETag ruleset fetch + push stream, RBAC management plane. Three stores: flag store / immutable snapshots / exposure stream.</td>
+</tr>
+<tr>
+<td>18-32 min</td>
+<td>Architecture (centerpiece)</td>
+<td>Walk both diagrams: in-process SDK eval over cached ruleset → background fetch/push from edge config → control plane → flag store + audit; exposures async to metrics pipeline. Read + write paths.</td>
+</tr>
+<tr>
+<td>32-45 min</td>
+<td>Deep dive</td>
+<td>(1) Low-latency local eval + immutable versioned snapshots + push kill-switch + fail-safe. (2) Deterministic bucketing, per-flag salt, monotonic ramps, exposure-on-assignment.</td>
+</tr>
+<tr>
+<td>45-52 min</td>
+<td>Tradeoffs + failures</td>
+<td>Local vs central eval, eventual vs strong, deterministic bucketing, fail-safe. Control-plane outage (designed-out), propagation herd, bucketing skew, unsafe rollout.</td>
+</tr>
+<tr>
+<td>52-58 min</td>
+<td>Scale 10x</td>
+<td>Propagation fan-out + exposure volume break first; tiered CDN config + regional hubs; exposure sampling; precomputed segments; flag-debt governance.</td>
+</tr>
+<tr>
+<td>58-60 min</td>
+<td>Wrap</td>
+<td>Restate: evaluation is local and free, changes propagate fast and safely via immutable snapshots + push, with a hard kill-switch and full audit — the safe-rollout platform primitive tying back to your infra-governance ownership.</td>
+</tr>
+</tbody>
+</table></article></div></body></html>

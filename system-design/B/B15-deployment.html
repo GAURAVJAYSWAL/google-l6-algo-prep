@@ -1,0 +1,410 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>B15 — Design a code deployment / release system (commit to fleet)</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="index.html">&larr; All system-design questions</a><article class="doc"><h1>B15 — Design a code deployment / release system (commit to fleet)</h1>
+<p>Design the system that takes a single git commit and safely lands it on thousands of production servers across multiple regions — building an artifact, promoting it through environments, rolling it out progressively with health checks, and <strong>automatically rolling back</strong> when it misbehaves. It tests core <strong>developer-experience and release-engineering</strong> judgment: artifact promotion, rollout strategies (blue-green, canary, rolling), progressive delivery, config/secrets handling, observability, and the failure containment that keeps one bad commit from taking down the fleet. Google asks it because safe, fast deployment is the backbone of DevEx, and getting "a commit onto thousands of machines without an outage" right requires reasoning about blast radius, not just plumbing.</p>
+<h2>Lead with this — your résumé hook</h2>
+<p>"I built CI/CD with automated rollback, so I'll design for the thing that actually matters in production: a bad commit must never reach the whole fleet. The unit of safety is <strong>blast radius</strong> — I promote an immutable artifact through environments, roll it out in waves (canary -&gt; region -&gt; global) gated by health checks against SLO baselines, and <strong>automatically roll back</strong> the moment error rate or latency regresses. I'll treat config and secrets as versioned, separately-promotable artifacts, and make every release observable and reversible." Lead with the automated-rollback experience — it signals you've felt the pain of a bad deploy and designed the guardrails.</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>What are we deploying:</strong> a single service binary/container, or heterogeneous services with different runtimes? Containers + an orchestrator simplify the substrate; bare-metal binaries change the agent design.</li>
+<li><strong>Fleet shape &amp; scale:</strong> how many servers/instances, how many distinct services, how many regions/zones? Thousands of servers across N regions sets the wave structure.</li>
+<li><strong>Deploy frequency &amp; lead time:</strong> are we optimizing for many deploys/day (DevEx) or rare, heavily-gated releases? This drives how much automation vs manual approval.</li>
+<li><strong>Rollout strategy expectation:</strong> is zero-downtime required (then blue-green or rolling, never stop-the-world)? Is canary/progressive delivery in scope?</li>
+<li><strong>Health signal:</strong> what defines "healthy" — process up, readiness probe, or SLO metrics (error rate, latency, saturation)? Automated rollback needs a real signal, not just "process started."</li>
+<li><strong>Rollback semantics:</strong> is the previous artifact always kept warm for instant rollback? Are DB schema changes involved (which are not trivially reversible)?</li>
+<li><strong>Config &amp; secrets:</strong> are config and secrets deployed with the binary or separately? Can a config change alone trigger a rollout? Where do secrets come from?</li>
+<li><strong>Stateful vs stateless services:</strong> stateless rolls easily; stateful (databases, leader-elected services) need careful ordering and draining.</li>
+<li><strong>Approval &amp; compliance:</strong> required manual approvals, change windows, audit trail, multi-party sign-off for sensitive services?</li>
+<li><strong>Consistency of version across fleet:</strong> is a brief mixed-version state acceptable during rollout (almost always yes), and must old/new versions be wire-compatible?</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> they want to see that you optimize for <strong>safety and blast-radius containment</strong>, not just "copy the binary and restart." The strong signals are: proposing <strong>progressive delivery with automated, metric-driven rollback</strong> unprompted; treating the artifact as <strong>immutable and promoted</strong> (build once, deploy many) rather than rebuilt per environment; and raising the hard cases (schema migrations, secrets, mixed-version compatibility) yourself. "SSH and restart" is an L5 answer; "canary gated on SLOs with auto-rollback and bounded blast radius" is L6.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In-scope</strong>
+- CI: on commit, build once -&gt; immutable, versioned artifact (container image / package) with provenance.
+- Artifact registry with content-addressed, immutable versions.
+- Promotion through environments (dev -&gt; staging -&gt; prod) with the <strong>same artifact</strong> (no rebuild).
+- Rollout strategies: rolling, blue-green, and canary / progressive delivery.
+- Health checks (readiness + SLO metric gates) driving rollout progression.
+- Automatic rollback on health regression; one-click manual rollback.
+- Config + secrets as versioned, separately-promotable inputs.
+- Multi-region, multi-wave rollout with bounded blast radius.
+- Observability: per-release dashboards, deploy events, audit log, who/what/when.</p>
+<p><strong>Out-of-scope (defer)</strong>
+- The CI build internals (compilers, test runners) beyond producing an artifact + signal.
+- Database migration <em>execution</em> engine details (we cover ordering/strategy, not a migration tool).
+- Full infra provisioning / IaC (assume the fleet exists; we deploy onto it).
+- Feature-flag platform internals (complementary; mention decoupling deploy from release).</p>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>10K+ servers, hundreds of services, 3–5 regions; hundreds of deploys/day.</td>
+</tr>
+<tr>
+<td>Rollout speed</td>
+<td>Canary to full-global in &lt; 60 min for a normal change; emergency rollback in &lt; 5 min.</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td>Zero-downtime deploys (always-rolling, never stop-the-world); deploy system itself 99.9%+.</td>
+</tr>
+<tr>
+<td>Safety</td>
+<td>Bad change must be contained to ≤ canary blast radius before auto-rollback (e.g., ≤1% then ≤1 region).</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td>Eventually-consistent fleet version during rollout; old/new must be wire-compatible (mixed-version safe).</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>Immutable artifacts retained for rollback (keep N prior versions); audit log durable + tamper-evident.</td>
+</tr>
+<tr>
+<td>Observability</td>
+<td>Every deploy emits structured events; health gates read live SLO metrics.</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>Signed artifacts (provenance/SBOM), least-privilege deploy agents, secrets never baked into images, full audit.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>Fleet &amp; rollout math
+  10,000 servers, rolling in waves.
+  Wave plan (blast-radius bounded):
+    canary  = 1%   = 100 servers
+    region1 = ~20% = 2,000 servers
+    ... 5 regions ~2,000 each -&gt; full fleet
+  If each wave bakes ~10 min to gather a stable SLO signal:
+    canary(10) + 5 regions(10 each) ~ 60 min to global  (matches target)
+
+  Concurrency / agent fan-out
+    Updating 2,000 servers/region; if 200 in-flight at a time, 10 batches/region.
+    Health gate between batches -&gt; contained blast radius per batch.
+
+Artifact storage
+  Avg image ~500 MB; 200 services * 10 retained versions = 2,000 artifacts
+    2,000 * 500 MB = 1 TB registry (small) ; replicate per region for pull locality
+  Pull bandwidth: 10K servers * 500 MB on a fleet-wide deploy = 5 TB transferred
+    -&gt; use per-region registry mirrors + P2P/lazy pull to avoid WAN saturation
+
+Deploy event volume
+  Hundreds of deploys/day * 10K servers * a few events each
+    ~ low millions of events/day -&gt; structured event store + dashboards (cheap)
+
+Rollback warmth
+  Keep previous artifact pre-pulled on hosts (or blue-green idle color) so rollback
+  is &quot;flip pointer + restart&quot;, not &quot;re-download&quot; -&gt; rollback &lt; 5 min.
+</code></pre>
+<h2>5) API design</h2>
+<pre><code># Trigger / pipeline
+POST /v1/deploy
+  { &quot;service&quot;:&quot;search-fe&quot;, &quot;artifact&quot;:&quot;sha256:...&quot;, &quot;from_env&quot;:&quot;staging&quot;,
+    &quot;to_env&quot;:&quot;prod&quot;, &quot;strategy&quot;:&quot;canary&quot;,
+    &quot;rollout&quot;:{ &quot;waves&quot;:[&quot;1%&quot;,&quot;region:us&quot;,&quot;region:eu&quot;,&quot;global&quot;],
+                &quot;bake_minutes&quot;:10 },
+    &quot;health_gate&quot;:{ &quot;error_rate_max&quot;:0.5, &quot;p99_ms_max&quot;:250, &quot;baseline&quot;:&quot;prev&quot; } }
+  -&gt; { &quot;rollout_id&quot;:&quot;...&quot;, &quot;status&quot;:&quot;running&quot;, &quot;current_wave&quot;:&quot;1%&quot; }
+
+# Promotion (same artifact, no rebuild)
+POST /v1/promote { service, artifact, from_env, to_env }   # gated by approvals
+
+# Control
+POST /v1/rollouts/{id}/pause
+POST /v1/rollouts/{id}/resume
+POST /v1/rollouts/{id}/rollback   # to last-known-good artifact, fleet-wide or per wave
+GET  /v1/rollouts/{id}            # wave status, health per wave, per-server state
+
+# Artifact registry
+PUT  /v1/artifacts   { service, content_hash, sbom, signature }   # immutable
+GET  /v1/artifacts/{service}?env=prod   # current desired version per env
+
+# Config / secrets (versioned, separate)
+PUT  /v1/config/{service}   { version, values }            # promotable like artifacts
+POST /v1/secrets/grant      { service, secret_ref }        # ref, never the value
+
+# Agent (host -&gt; control plane), pull-based
+GET  /v1/agent/desired-state?host=...   -&gt; { artifact, config_version, secret_refs }
+POST /v1/agent/report     { host, version, health, phase }
+</code></pre>
+<h2>6) Architecture — request &amp; data flow</h2>
+<p><strong>(a) ASCII layered flow</strong></p>
+<pre><code>        Developer git commit / merge
+                 |
+                 v
+        [ CI: build + test ]  build ONCE -&gt; immutable artifact
+                 |             attach provenance/SBOM + sign
+                 v
+        [ Artifact Registry ]  content-addressed, immutable, per-region mirrors
+                 |
+                 v
+        [ Promotion gate ]  dev-&gt;staging-&gt;prod, approvals, same artifact (no rebuild)
+                 |
+                 v
+        [ Deploy Controller (control plane) ]   the brain: owns rollout state machine
+            |        |              |
+            |   reads desired   writes plan
+            |   health gate     (waves, blast radius)
+            v        v              v
+   [ Observability / SLO ]   [ Rollout state store ]   [ Config + Secrets store ]
+   error rate, p99,                |  current wave        versioned config; secret REFS
+   saturation (live)              v                       (values fetched at runtime)
+            ^               WAVE SCHEDULER
+            |        canary 1% -&gt; region -&gt; global, bake + gate between waves
+            |               |
+            |               v   (pull-based desired-state)
+            |        [ Region control plane / agents ]
+            |          /        |          \
+            |         v         v           v
+            |    [ Host agent ][ Host agent ][ Host agent ]  thousands; each:
+            |       pull artifact (region mirror), fetch secrets, drain,
+            |       swap (rolling/blue-green), readiness probe, report health
+            |               |
+            +------ health signal feeds gate -&gt; PASS advance / FAIL auto-rollback
+</code></pre>
+<p><strong>Deploy (write) path:</strong> a merge triggers <strong>CI</strong>, which builds the artifact <strong>exactly once</strong>, attaches provenance/SBOM, <strong>signs</strong> it, and pushes it to the immutable <strong>registry</strong> (mirrored per region for pull locality). Promotion moves that <em>same</em> artifact through environments behind approval gates — never a rebuild, so what was tested is what ships. A <code>deploy</code> request hands the <strong>Deploy Controller</strong> an artifact + a <strong>rollout plan</strong> (waves + bake time + health gate). The controller's <strong>wave scheduler</strong> advances blast-radius-bounded waves: <strong>canary 1% -&gt; one region -&gt; remaining regions -&gt; global</strong>. For each wave it sets the <strong>desired state</strong> in the rollout store; <strong>host agents pull</strong> their desired state (artifact version, config version, secret refs), download the artifact from the region mirror, <strong>drain</strong> in-flight traffic, <strong>swap</strong> the running version (rolling batch or blue-green color flip), run a <strong>readiness probe</strong>, and <strong>report health</strong> back. Between waves the controller <strong>bakes</strong> for a few minutes and evaluates the <strong>health gate</strong> against an SLO baseline (error rate, p99, saturation vs the prior version). <strong>Pass -&gt; advance</strong> to the next wave; <strong>fail -&gt; automatic rollback</strong> of the affected scope to the last-known-good artifact (instant because the prior version is pre-pulled / the old blue-green color is still warm).</p>
+<p><strong>Read / steady-state path:</strong> agents continuously reconcile actual vs desired state (like a control loop), so a host that crashes and restarts converges to the correct version. Operators read per-rollout dashboards (wave status, per-region health, per-host version) and can <code>pause</code>/<code>resume</code>/<code>rollback</code> at any time. Secrets are <strong>referenced</strong>, not baked: the agent fetches secret <em>values</em> at runtime from the secrets store via short-lived, least-privilege credentials, so images and config never contain plaintext secrets.</p>
+<p><strong>(b) Mermaid flowchart</strong></p>
+<div class="mermaid">
+flowchart TD
+  commit[git commit / merge] --> ci[CI: build once + test<br/>sign + SBOM/provenance]
+  ci --> reg[(Artifact Registry<br/>immutable, per-region mirrors)]
+  reg --> promo{Promotion gate<br/>dev->staging->prod, approvals}
+  promo --> ctrl[Deploy Controller<br/>rollout state machine]
+  ctrl --> rs[(Rollout state store)]
+  ctrl --> sched[Wave scheduler<br/>canary 1% -> region -> global]
+  cfg[(Config + Secrets store<br/>versioned config, secret refs)] -.-> sched
+  sched --> rcp[Region control plane / agents]
+  rcp --> a1[Host agent]
+  rcp --> a2[Host agent]
+  rcp --> a3[Host agent]
+  a1 -->|pull artifact, fetch secrets,<br/>drain, swap, probe| run1[Running service]
+  a2 --> run2[Running service]
+  a3 --> run3[Running service]
+  run1 --> obs[Observability / SLO<br/>error rate, p99, saturation]
+  run2 --> obs
+  run3 --> obs
+  obs -->|health gate| ctrl
+  ctrl -->|FAIL: auto-rollback to last-known-good| sched
+  ctrl -->|PASS: advance wave| sched
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<ul>
+<li><strong>Artifact registry: content-addressed, immutable object store.</strong> First-principles: immutability + content addressing (hash = identity) guarantees that what you tested is byte-for-byte what you deploy and makes rollback trivial (an older hash is always retrievable). Mirror per region for pull locality; retain the last N versions per service for instant rollback.</li>
+<li><strong>Rollout state: a small strongly-consistent store</strong> (the control plane's database) holding the rollout state machine — desired version per (service, env, wave), current wave, per-host reported version/health. This must be consistent (it's the source of truth for "what should be running where"), but it's low-volume, so a replicated SQL/consensus-backed KV fits.</li>
+<li><strong>Config: versioned key/value per service+env</strong>, promotable on the same gates as artifacts, so a config change is a first-class, auditable, rollback-able deploy. Decouple from the binary so a config-only change doesn't require a rebuild.</li>
+<li><strong>Secrets: a dedicated secrets manager holding values; the deploy system stores only references.</strong> First-principles: blast radius and least privilege — secrets must never be baked into images or config, and agents fetch them at runtime with short-lived, scoped credentials. Rotation happens without redeploying the binary.</li>
+<li><strong>Deploy/audit events: append-only event log -&gt; dashboards + tamper-evident audit store.</strong> Every state transition (build, promote, wave advance, rollback, who approved) is an immutable event for observability and compliance.</li>
+<li><strong>Health/SLO metrics: time-series store</strong> (the existing monitoring system) queried by the health gate — error rate, latency percentiles, saturation, compared against a baseline window.</li>
+</ul>
+<h2>8) Deep dive</h2>
+<p><strong>Deep dive A — progressive delivery + automated, metric-driven rollback (the safety crux).</strong> The whole point is to <strong>bound blast radius and detect badness before it's everywhere</strong>. The rollout is a <strong>state machine over waves</strong> of increasing scope: <code>canary (1%) -&gt; single region -&gt; remaining regions -&gt; global</code>. Within each wave, hosts update in <strong>batches</strong> (e.g., 200 at a time) so even a wave is sub-divided. After each wave (and ideally each batch) the controller <strong>bakes</strong> for a few minutes to gather a statistically meaningful sample, then evaluates a <strong>health gate</strong>: compare the new version's <strong>error rate, p99 latency, and saturation</strong> against a <strong>baseline</strong> — either the previous version running side-by-side (true canary analysis: same traffic, A/B the metrics) or a historical baseline. If any metric regresses beyond threshold, the controller <strong>automatically rolls back</strong> the affected scope to the <strong>last-known-good</strong> artifact. Rollback is fast because the prior version is <strong>pre-pulled on hosts</strong> (or, with blue-green, the old color is still running idle — rollback is just flipping the traffic pointer). The two strategies trade off: <strong>canary analysis</strong> catches subtle regressions (latency, error-rate creep) that a binary readiness probe misses, which is exactly why "process is up" is an insufficient health signal. The decisive design choice is making rollback <strong>automatic and metric-driven</strong>, not a human noticing a graph at 3am.</p>
+<p><strong>Deep dive B — rollout strategies, mixed-version safety, and the hard cases (correctness crux).</strong> The strategies:</p>
+<table>
+<thead>
+<tr>
+<th>Strategy</th>
+<th>How</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Rolling</strong></td>
+<td>Replace instances in batches in place; drain then swap</td>
+<td>Default; zero-downtime, cheap, but a brief mixed-version window</td>
+</tr>
+<tr>
+<td><strong>Blue-green</strong></td>
+<td>Stand up full new "green" fleet, flip traffic, keep "blue" warm</td>
+<td>Instant rollback, no mixed version at flip; costs 2x capacity briefly</td>
+</tr>
+<tr>
+<td><strong>Canary / progressive</strong></td>
+<td>Send a small % of traffic/hosts to new version, analyze, expand</td>
+<td>Best regression detection; the recommended default with auto-rollback</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Mixed-version safety:</strong> during any rolling/canary deploy the fleet runs <strong>two versions simultaneously</strong>, so old and new must be <strong>wire-compatible</strong> — this forces <strong>backward/forward-compatible API and data changes</strong> and the <strong>expand/contract (parallel-change) pattern</strong> for anything schema-related. <strong>Database migrations</strong> are the genuinely hard case because they're not trivially reversible: never ship a destructive schema change coupled to a binary rollout. Instead: (1) <strong>expand</strong> — add the new column/table, deploy code that writes both old+new but reads old; (2) <strong>migrate</strong> data; (3) flip reads to new; (4) <strong>contract</strong> — remove old after the new version is fully baked and irreversible-rollback risk has passed. This keeps every intermediate state both forward- and backward-compatible so a rollback is always safe. <strong>Decouple deploy from release</strong> via feature flags: ship the binary dark, then turn the feature on as a separate, instantly-reversible action — so a rollout never forces a risky feature live, and a bad feature doesn't require a full redeploy to disable.</p>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Choice &amp; why</th>
+<th>Tradeoff accepted</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Artifact handling</td>
+<td>Build once, promote immutable artifact</td>
+<td>Slightly more registry storage; gain test==prod fidelity + trivial rollback</td>
+</tr>
+<tr>
+<td>Default strategy</td>
+<td>Canary / progressive with auto-rollback</td>
+<td>More orchestration + a baseline signal; gain smallest blast radius</td>
+</tr>
+<tr>
+<td>Health signal</td>
+<td>SLO metrics (not just process-up)</td>
+<td>Needs bake time + statistical care; catches subtle regressions</td>
+</tr>
+<tr>
+<td>Blue-green vs rolling</td>
+<td>Blue-green for instant rollback on risky changes; rolling otherwise</td>
+<td>Blue-green needs ~2x capacity briefly; rolling has a mixed-version window</td>
+</tr>
+<tr>
+<td>Agent model</td>
+<td>Pull-based reconcile loop</td>
+<td>Slightly higher steady-state load; gain self-healing + no push fan-out SPOF</td>
+</tr>
+<tr>
+<td>Schema changes</td>
+<td>Expand/contract, decoupled from binary rollout</td>
+<td>Multi-step, slower; gain always-safe rollback</td>
+</tr>
+<tr>
+<td>Deploy vs release</td>
+<td>Decouple via feature flags</td>
+<td>Extra flag plumbing; gain instant, redeploy-free feature kill switch</td>
+</tr>
+<tr>
+<td>Secrets</td>
+<td>References + runtime fetch</td>
+<td>Runtime dependency on secrets store; gain no plaintext in images, easy rotation</td>
+</tr>
+<tr>
+<td>Fleet consistency</td>
+<td>Eventually consistent during rollout</td>
+<td>Brief mixed versions; required for zero-downtime</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Bad commit reaching the whole fleet:</strong> the cardinal failure. <em>Mitigation:</em> blast-radius-bounded waves + automated metric-driven rollback contain it to ≤ canary scope.</li>
+<li><strong>Registry / pull thundering herd:</strong> 10K hosts pulling a 500 MB image at once saturates the network. <em>Mitigation:</em> per-region registry mirrors, P2P/lazy layer pull, and staggered batches so pulls are spread, not simultaneous.</li>
+<li><strong>Health gate false-negative (bad version looks healthy):</strong> readiness passes but the service is subtly broken. <em>Mitigation:</em> gate on real SLO canary analysis (compare against baseline), not just process-up; longer bake for risky services.</li>
+<li><strong>Health gate false-positive (good version rolled back on noise):</strong> flapping rollbacks. <em>Mitigation:</em> require statistically significant sample, hysteresis/thresholds, and a "hold" before rollback to avoid reacting to a transient blip.</li>
+<li><strong>Control plane SPOF:</strong> if the deploy controller dies mid-rollout, deploys stall. <em>Mitigation:</em> make it HA/replicated with persisted rollout state so it resumes; agents keep reconciling to last desired state meanwhile (fail-safe, not fail-open).</li>
+<li><strong>Non-reversible schema migration coupled to rollout:</strong> rollback corrupts data. <em>Mitigation:</em> expand/contract, decouple migrations from binary, never ship destructive change with the deploy that depends on it.</li>
+<li><strong>Stuck/partial rollout (some hosts won't converge):</strong> <em>Mitigation:</em> per-host timeout + retry, quarantine unhealthy hosts, alert; don't let a stuck minority block or silently skew the health signal.</li>
+<li><strong>Secrets store unavailable at deploy:</strong> agents can't fetch secrets. <em>Mitigation:</em> cache last-good secret leases with TTL, degrade gracefully, and treat secrets-store availability as a deploy dependency to monitor.</li>
+<li><strong>Cascading failure from a config-only change:</strong> config rolls out faster than code review catches. <em>Mitigation:</em> treat config as a deploy with the same waves + health gates + rollback, not an unguarded push.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>First to break: registry pull bandwidth and the control plane's per-host bookkeeping</strong> at 100K+ hosts. Evolve to hierarchical region/zone control planes (the global controller commands region controllers, which command hosts) and P2P artifact distribution so the WAN isn't the bottleneck.</li>
+<li><strong>More services / more deploys/day:</strong> move from per-service manual orchestration to a fully declarative, GitOps-style desired-state model where the fleet continuously reconciles to a versioned spec, and the controller just advances waves.</li>
+<li><strong>Smarter rollback:</strong> add automated canary analysis with anomaly detection / statistical tests (not fixed thresholds), and per-service learned baselines, so gates adapt to each service's normal variance.</li>
+<li><strong>Multi-region nuance:</strong> order waves by region risk/traffic (lowest-traffic region first), respect data-residency and change-window constraints per region, and never deploy to all regions simultaneously (correlated-failure avoidance).</li>
+<li><strong>Cell-based / blast-radius architecture:</strong> partition the fleet into independent cells and deploy cell-by-cell so even a global rollout is a sequence of fully isolated blast radii.</li>
+<li><strong>Policy as code:</strong> encode approval, change-freeze, and compliance rules declaratively so the pipeline enforces them automatically as deploy volume grows.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"How do you make sure one bad commit doesn't take down everything?"</strong> Blast-radius-bounded progressive rollout (canary 1% -&gt; region -&gt; global) with a bake + SLO health gate between waves, and automatic rollback to last-known-good the moment a metric regresses — so badness is contained to the canary before it spreads.</li>
+<li><strong>"What's your health signal — how do you know a deploy is bad?"</strong> Not just process-up. I run canary analysis comparing the new version's error rate, p99 latency, and saturation against a baseline (ideally the prior version taking the same traffic side-by-side); statistically significant regression triggers rollback.</li>
+<li><strong>"How is rollback so fast?"</strong> The prior artifact is pre-pulled on hosts (or with blue-green the old color is still warm), so rollback is a pointer flip + restart, not a re-download — under 5 minutes fleet-wide.</li>
+<li><strong>"Two versions run at once during a rollout — how do you not break?"</strong> I require old/new wire compatibility and use expand/contract for any data change, so every intermediate mixed-version state is forward- and backward-compatible and a rollback is always safe.</li>
+<li><strong>"A deploy includes a DB schema change — walk me through it."</strong> I decouple it from the binary rollout: expand (add new schema, code writes both), migrate data, flip reads, then contract (drop old) only after the new version is fully baked. Never ship a destructive change with the deploy that depends on it, because that makes rollback unsafe.</li>
+<li><strong>"Blue-green vs canary vs rolling — when each?"</strong> Rolling is the cheap zero-downtime default; blue-green when I want instant rollback and no mixed-version window (at ~2x capacity cost); canary/progressive when I need to catch subtle regressions — which is my default for risky/high-traffic services, paired with auto-rollback.</li>
+<li><strong>"Where do secrets live?"</strong> In a dedicated secrets manager; the deploy system stores only references. Agents fetch values at runtime with short-lived, least-privilege credentials, so nothing plaintext is ever baked into an image or config and rotation needs no redeploy.</li>
+<li><strong>"What if the deploy controller crashes mid-rollout?"</strong> It's HA with persisted rollout state, so it resumes where it left off; meanwhile agents keep reconciling to the last desired state (fail-safe). A crash pauses progress, it doesn't push a half-baked global change.</li>
+<li><strong>"Config change vs code change — handled differently?"</strong> No — a config change is a first-class deploy with the same waves, health gates, and rollback. Unguarded config pushes are a classic cause of outages, so I refuse to treat them as a special fast path.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Phase</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–6 min</td>
+<td>Clarify</td>
+<td>Fleet size/regions, container vs binary, health signal, schema changes, deploy frequency</td>
+</tr>
+<tr>
+<td>6–9 min</td>
+<td>FR/NFR</td>
+<td>Lock zero-downtime, bounded blast radius, immutable artifacts, auto-rollback</td>
+</tr>
+<tr>
+<td>9–14 min</td>
+<td>Estimation</td>
+<td>Wave math (canary-&gt;region-&gt;global ~60 min), registry/pull bandwidth, rollback warmth</td>
+</tr>
+<tr>
+<td>14–20 min</td>
+<td>API + high-level arch</td>
+<td>Build-once/promote, deploy controller + wave scheduler, pull agents; draw both diagrams</td>
+</tr>
+<tr>
+<td>20–26 min</td>
+<td>Walk deploy &amp; steady-state paths</td>
+<td>Promotion (no rebuild), wave gate, agent drain/swap/probe/report, reconcile loop</td>
+</tr>
+<tr>
+<td>26–42 min</td>
+<td>Deep dive</td>
+<td>(A) progressive delivery + metric-driven auto-rollback; (B) strategies + mixed-version + schema</td>
+</tr>
+<tr>
+<td>42–49 min</td>
+<td>Tradeoffs + failures</td>
+<td>Blue-green vs canary, gate false +/-, registry herd, schema rollback, control-plane HA</td>
+</tr>
+<tr>
+<td>49–55 min</td>
+<td>Scale 10x</td>
+<td>Hierarchical control planes, P2P distribution, GitOps, cell-based blast radius</td>
+</tr>
+<tr>
+<td>55–60 min</td>
+<td>Probes</td>
+<td>Bad-commit containment, health signal, fast rollback, schema-change walk-through</td>
+</tr>
+</tbody>
+</table></article></div></body></html>

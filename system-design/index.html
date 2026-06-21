@@ -1,0 +1,28 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Google L6 System Design - Prep</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><article class="doc"><h1>Google L6 - System Design Prep</h1><p>Comprehensive, first-principles design docs for Gaurav Jayswal's Google Staff (Search Feature) loop. Each question covers: clarifying questions, FR/NFR, estimation, a full layered architecture (ASCII + Mermaid), data model, deep dives, tradeoffs, failure modes, 10x evolution, interviewer probes, and a 60-minute flow. Also available as Google Docs and Markdown.</p><div class="idx-group"><h2>Section B — High-Probability (Your Role) (16)</h2><ul class="idx-list"><li><a href="B/B01-search-indexing.html"><span class="id">B01</span> Design a large-scale search / indexing system</a></li><li><a href="B/B02-autocomplete.html"><span class="id">B02</span> Design autocomplete / typeahead at scale</a></li><li><a href="B/B03-code-search.html"><span class="id">B03</span> Design a code search system (à la Google Code Search)</a></li><li><a href="B/B04-ai-coding-assistant.html"><span class="id">B04</span> Design an AI coding assistant / agentic dev workflow</a></li><li><a href="B/B05-rag.html"><span class="id">B05</span> Design a RAG system over a large corpus</a></li><li><a href="B/B06-cicd.html"><span class="id">B06</span> Design a CI/CD / build system at scale</a></li><li><a href="B/B07-feature-flags.html"><span class="id">B07</span> Design a feature-flag / experimentation platform</a></li><li><a href="B/B08-file-permission.html"><span class="id">B08</span> Design a file storage + permission system (billions of files)</a></li><li><a href="B/B09-transcoding.html"><span class="id">B09</span> Design a video / media transcoding pipeline</a></li><li><a href="B/B10-job-scheduler.html"><span class="id">B10</span> Design a distributed job scheduler</a></li><li><a href="B/B11-notification.html"><span class="id">B11</span> Design a notification / pub-sub system</a></li><li><a href="B/B12-cache.html"><span class="id">B12</span> Design a distributed cache</a></li><li><a href="B/B13-multiregion-storage.html"><span class="id">B13</span> Design a multi-region, globally-distributed storage system</a></li><li><a href="B/B14-doc-knowledge-search.html"><span class="id">B14</span> Design a developer documentation / knowledge search system</a></li><li><a href="B/B15-deployment.html"><span class="id">B15</span> Design a code deployment / release system (commit to fleet)</a></li><li><a href="B/B16-ml-serving.html"><span class="id">B16</span> Design an ML recommendation / model-serving system</a></li></ul></div></article></div></body></html>

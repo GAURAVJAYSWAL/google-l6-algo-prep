@@ -1,0 +1,413 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>B16 — Design an ML recommendation / model-serving system</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="index.html">&larr; All system-design questions</a><article class="doc"><h1>B16 — Design an ML recommendation / model-serving system</h1>
+<p>This tests whether you can design the full <strong>ML production stack</strong>: a <strong>feature store</strong> bridging offline training and online serving, a <strong>versioned model server</strong> doing <strong>low-latency inference</strong>, the canonical <strong>candidate-generation -&gt; ranking</strong> two-stage recommender, <strong>A/B testing + offline eval</strong>, request <strong>batching</strong>, and a <strong>feedback loop</strong> that closes data back into training. Google asks it because 2026 loops weave AI/ML system design into the bar and the role's <strong>AI Fluency</strong> expectation is explicit — they want to see you reason about training/serving skew, online vs offline, and model lifecycle, not just CRUD services.</p>
+<h2>Lead with this — your résumé hook</h2>
+<p>"I work hands-on at the intersection of ML systems and product — <strong>RAG and AI-assisted developer workflows</strong> — so I think in terms of the full lifecycle: features computed consistently across offline training and online serving, <strong>versioned models</strong> rolled out behind experiments, <strong>low-latency inference</strong> with request batching, and a <strong>feedback loop</strong> that turns user interactions back into training data. So I'll design this as a production ML system with the failure modes I actually care about — training/serving skew, stale features, and safe model rollout — not just a model behind an endpoint."</p>
+<p>That projects AI Fluency and lifecycle thinking — exactly the Staff/AI signal this question is built to elicit.</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>What are we recommending, to whom?</strong> Feed items / videos / products / "people you may know"? Catalog size (candidate pool of <strong>10^6–10^9</strong>?) and user base (<strong>10^8–10^9</strong>)? This sets the candidate-generation problem.</li>
+<li><strong>Surface + latency budget:</strong> Is this a synchronous feed load where the <strong>end-to-end budget is ~100–200 ms</strong> (so ranking has tens of ms), or can we precompute recs offline? I'll assume online serving with a tight budget. Critical constraint.</li>
+<li><strong>Objective:</strong> What are we optimizing — clicks, watch-time, conversions, long-term engagement, diversity? Single objective or <strong>multi-objective</strong> (and do business rules/constraints apply, e.g. freshness, no-repeats, policy)?</li>
+<li><strong>Scale / QPS:</strong> Recommendation requests/sec (<strong>10^4–10^6</strong>?), and how many candidates scored per request? Drives the batching + serving fleet.</li>
+<li><strong>Freshness needs:</strong> Must recs reflect <strong>just-happened</strong> behavior (you watched X 10s ago)? That dictates <strong>real-time features</strong> and possibly online candidate sources, not just nightly batch.</li>
+<li><strong>Cold start:</strong> New users and new items with no history — how important? Drives fallback/exploration strategy.</li>
+<li><strong>Feature types:</strong> User features, item features, <strong>real-time context</strong> (session, time, device)? Where do they come from and how fresh must each be? This sizes the <strong>feature store</strong>.</li>
+<li><strong>Eval + experimentation:</strong> How do we measure a model is better <strong>before</strong> shipping (offline) and <strong>after</strong> (online A/B)? Is there an existing experiment platform? What guardrail metrics?</li>
+<li><strong>Consistency / correctness:</strong> Is <strong>training/serving skew</strong> a known concern (it always is)? Same feature definitions both sides? Acceptable to occasionally serve a slightly stale feature?</li>
+<li><strong>Constraints:</strong> Cost ceiling on inference (GPU expensive), model size, on-device vs server, fairness/policy constraints on what can be recommended.</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> they want the <strong>two-stage architecture</strong> (cheap candidate generation narrowing 10^9 -&gt; ~hundreds, then expensive ranking), a real <strong>feature store</strong> with the <strong>offline/online duality</strong> (and the <strong>training/serving skew</strong> problem named and solved), <strong>model versioning + safe rollout (A/B/shadow/canary)</strong>, <strong>request batching</strong> for inference throughput, and the <strong>feedback loop</strong> (logged interactions -&gt; labels -&gt; retrain) — closing the ML system. Naming training/serving skew and the candidate-gen vs ranking split unprompted is the strongest signal here.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In-scope</strong></p>
+<ul>
+<li>Serve a <strong>ranked list of recommendations</strong> for a user+context within a tight latency budget.</li>
+<li><strong>Candidate generation:</strong> narrow a huge item pool (10^9) to a few hundred plausible candidates (multiple sources: collaborative-filtering/embedding ANN, recently-trending, follow-graph, etc.).</li>
+<li><strong>Ranking:</strong> score candidates with a heavier model using rich features; apply business rules (dedup, diversity, freshness, policy filters).</li>
+<li><strong>Feature store:</strong> serve features <strong>online</strong> (low-latency lookup) and produce them <strong>offline</strong> (for training) from the <strong>same definitions</strong> (no skew).</li>
+<li><strong>Model serving:</strong> host <strong>versioned</strong> models; low-latency inference with <strong>request batching</strong>; hot-swap/rollback.</li>
+<li><strong>Experimentation:</strong> <strong>A/B test</strong> models/rankers; <strong>offline eval</strong> before shipping; guardrail metrics.</li>
+<li><strong>Feedback loop:</strong> log served recs + user interactions (clicks/watch/skip) -&gt; labels -&gt; feature/label tables -&gt; retraining.</li>
+</ul>
+<p><strong>Out-of-scope (defer)</strong></p>
+<ul>
+<li>Training the models themselves at the algorithm level (we design the <em>system</em>; mention training pipeline, don't derive the loss).</li>
+<li>The downstream UI/feed rendering.</li>
+<li>Full data-platform build-out (assume a stream bus + warehouse exist).</li>
+<li>Ads auction / pricing (adjacent; mention if recs are monetized).</li>
+</ul>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>10^8–10^9 users; item pool 10^6–10^9; <strong>10^4–10^6 rec QPS</strong>; hundreds of candidates scored/request -&gt; millions of inferences/sec at the ranker.</td>
+</tr>
+<tr>
+<td>Latency</td>
+<td>End-to-end rec <strong>p99 &lt; 150–200 ms</strong>; within it, <strong>candidate gen ~10–30 ms</strong>, <strong>feature fetch &lt; 10 ms</strong>, <strong>ranking inference ~20–50 ms</strong> (batched on GPU).</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td><strong>99.9%+</strong> for the serving path; <strong>graceful degradation</strong> — if the ranker is down, fall back to a cheaper model or cached/popular recs, never a blank feed.</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td><strong>Online features eventually consistent / bounded-stale</strong>; the hard requirement is <strong>no training/serving skew</strong> — identical feature logic offline and online.</td>
+</tr>
+<tr>
+<td>Freshness</td>
+<td>Real-time features (session/just-now behavior) within <strong>seconds</strong>; batch features (long-term affinities) within <strong>hours</strong>.</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>Interaction logs durable (they're the training-data source of truth) — 11 nines in the warehouse / log store.</td>
+</tr>
+<tr>
+<td>Cost</td>
+<td>Inference (GPU) is the cost driver — <strong>batching</strong>, candidate pruning, model distillation, and caching keep it bounded.</td>
+</tr>
+<tr>
+<td>Eval/Safety</td>
+<td>Every model change gated by offline metrics + online A/B with guardrails; instant rollback.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>Users:        5e8 ; item pool: 1e8 candidates
+Rec QPS:      1e5 peak (feed loads, refreshes)
+
+Two-stage funnel per request:
+   Candidate generation: 1e8 -&gt; ~500 candidates
+     (NOT scoring 1e8 per request -&gt; that's the whole reason for stage 1;
+      use ANN over embeddings + precomputed source lists)
+   Ranking: score ~500 candidates with the heavy model
+     -&gt; inferences/sec at ranker = 1e5 req/s * 500 = 5e7 inferences/s
+     -&gt; MUST batch: group candidates per request (and across requests) into
+        GPU batches; a single forward pass scores a batch of 500 in a few ms.
+
+Feature fetch: per request, fetch user features (1) + context (1) + item features (500)
+   -&gt; ~500 item-feature lookups/request -&gt; 1e5 * 500 = 5e7 feature reads/s
+   -&gt; served from an in-memory online feature store (KV), pre-joined where possible.
+   Cache user/item feature vectors; item features are shared across requests (hot).
+
+Online feature store size:
+   item features: 1e8 items * ~1 KB = ~100 GB
+   user features: 5e8 users * ~1 KB = ~500 GB
+   -&gt; sharded in-memory KV (hundreds of GB across the fleet), TTL'd.
+
+Embeddings for ANN candidate gen:
+   1e8 items * 256-dim int8 = ~25 GB vector index (+graph) -&gt; sharded ANN, in-RAM.
+
+Logging (feedback loop): every served rec + impression + interaction
+   1e5 req/s * (1 list + interactions) -&gt; ~1e6+ events/s into the stream bus
+   -&gt; durable log -&gt; warehouse -&gt; training tables. This is the data flywheel.
+
+Latency budget (p99 ~150 ms):
+   cand-gen ~20 ms + feature fetch ~10 ms + rank (batched) ~40 ms + glue/overhead.
+</code></pre>
+<p>The decisive insight: <strong>you cannot score 10^8 items per request</strong> — hence the <strong>two-stage funnel</strong> (cheap ANN/precomputed candidate gen -&gt; heavy ranking on ~500), and the ranker only survives because of <strong>request batching</strong> (turning 5e7 inferences/s into batched GPU forward passes) plus heavy <strong>feature caching</strong> (item features are shared across users).</p>
+<h2>5) API design</h2>
+<pre><code># Serving
+GET  /recommend?userId=&amp;context=&amp;k=20      (context: session, device, time, surface)
+     -&gt; {items:[{itemId, score, reason}], modelVersion, experimentId, traceId}
+
+# Feature store
+GET  feature_store.online_get(entityIds, featureSet) -&gt; {entity: {feature: value}}   # &lt;10ms
+PUT  feature_store.write(entity, features, eventTime)                                 # streaming ingest
+     feature_store.offline_get(entityIds, featureSet, asOfTime) -&gt; training dataframe # point-in-time correct
+
+# Model serving (internal)
+POST infer(modelName, version, batch[features]) -&gt; batch[scores]    # batched
+GET  /models -&gt; [{name, version, status: shadow|canary|live|rollback}]
+POST /models/{name}/rollout {version, trafficPct}                   # progressive
+
+# Experiment + feedback
+GET  experiment.assign(userId, surface) -&gt; {experimentId, variant, modelVersion}
+POST log.interaction {userId, itemId, action(click|watch|skip), servedRecId, ts}  # feedback loop
+</code></pre>
+<p><code>offline_get</code> is <strong>point-in-time correct</strong> (as-of the label's timestamp) — the single most important API for avoiding label leakage and training/serving skew. Serving responses echo <code>modelVersion</code> + <code>experimentId</code> so logs can attribute outcomes to the exact model/variant that produced them.</p>
+<h2>6) Architecture — request &amp; data flow</h2>
+<p>THE centerpiece. ASCII layered flow first, then a tailored Mermaid flowchart.</p>
+<h3>(a) ASCII layered block diagram</h3>
+<pre><code>   ===================  ONLINE SERVING PATH  ===================
+   Clients (feed / app / API)
+        |
+        v
+   [ CDN / Edge ] (only for cacheable surfaces)        [ Global LB / GeoDNS ]
+        |                                                     |
+        +-----------------------------------------------------+
+                                  v
+                        [ API Gateway ]  authN/Z, rate-limit
+                                  v
+                     [ Recommendation Service ]  (orchestrator, owns the budget)
+                                  |
+        +-------------------------+------------------------------+
+        v (1)                     v (2)                          v (3)
+ [ Candidate Generation ]   [ Feature Store (ONLINE) ]    [ Experiment / Assign ]
+  1e8 -&gt; ~500 via:           in-memory KV: user/item/        userId -&gt; variant,
+  - ANN over item embeds      context features (&lt;10ms);       modelVersion
+  - precomputed source lists  shared item features cached
+  - trending / follow-graph        |
+        \                          | features for the ~500 candidates
+         \                         v
+          \------------&gt; [ Ranking Service ] ---infer batch---&gt; [ Model Server (versioned, GPU) ]
+                              |  apply business rules            request batching, hot-swap,
+                              |  (dedup, diversity, policy)      shadow/canary/live
+                              v
+                     ranked top-k  ----&gt; response (items + modelVersion + experimentId)
+                              |
+                              +--&gt; log served list (impressions) ---------------+
+                                                                                |
+   ===================  FEEDBACK + OFFLINE PATH  ===================            |
+   user interactions (click/watch/skip) -&gt; [ Event Stream Bus (Kafka) ] &lt;-------+
+                                  |
+              +-------------------+--------------------+
+              v                                        v
+   [ Real-time Feature Compute ]              [ Data Warehouse / Lake ]
+    (streaming: session, counts)               (durable raw logs, source of truth)
+              |  write online features                |
+              v                                        v
+   [ Feature Store (ONLINE)  ]  &lt;==SAME DEFS==&gt;  [ Feature Store (OFFLINE) ]
+    (serving)                   (no skew!)        (point-in-time correct tables)
+                                                       |
+                                                       v
+                                            [ Training Pipeline ]  (build labels from logs,
+                                                       |            join features as-of time,
+                                                       |            train candidate-gen + ranker)
+                                                       v
+                                            [ Model Registry ]  (versioned artifacts, metadata)
+                                                       |
+                                       offline eval (replay/held-out) gates promotion
+                                                       v
+                                       deploy -&gt; [ Model Server ] (shadow -&gt; canary -&gt; live)
+                                                       |
+                                            online A/B + guardrails -&gt; promote or rollback
+</code></pre>
+<p><strong>Online serving path.</strong> Client -&gt; Gateway -&gt; <strong>Recommendation Service</strong> (the orchestrator that owns the latency budget). It does three things, mostly in parallel: (1) <strong>Candidate Generation</strong> narrows the 10^8 pool to ~500 — via <strong>ANN over item embeddings</strong> (user embedding -&gt; nearest item embeddings), plus <strong>precomputed source lists</strong> (trending, follow-graph, recently-engaged), unioned and deduped; (2) it fetches <strong>features</strong> for the user, context, and the ~500 candidate items from the <strong>online feature store</strong> (in-memory KV, &lt;10 ms, item features cached/shared across requests); (3) it asks the <strong>Experiment service</strong> which model <strong>variant/version</strong> this user is on. It then calls the <strong>Ranking Service</strong>, which <strong>batches</strong> the ~500 candidates into a single inference call to the <strong>versioned Model Server</strong> (GPU), gets scores, applies <strong>business rules</strong> (dedup, diversity, freshness, policy), and returns the <strong>top-k</strong> — echoing <code>modelVersion</code> + <code>experimentId</code>. If anything in the heavy path fails, it <strong>degrades gracefully</strong> (cheaper model, or cached/popular recs).</p>
+<p><strong>Feedback + offline path (the flywheel).</strong> Every served list (impressions) and every <strong>interaction</strong> (click/watch/skip) is logged to the <strong>Event Stream Bus</strong>. Two consumers: <strong>Real-time Feature Compute</strong> turns the stream into fresh <strong>online features</strong> (session activity, rolling counts) written back to the online store within seconds; and the <strong>Data Warehouse</strong> durably stores raw logs as the <strong>source of truth</strong>. The <strong>Training Pipeline</strong> builds <strong>labels</strong> from interactions, joins features <strong>point-in-time-correctly</strong> from the <strong>offline feature store</strong>, and trains the candidate-gen + ranking models. Artifacts land in the <strong>Model Registry</strong> (versioned). <strong>Offline eval</strong> (replay on held-out logs, nDCG/AUC) <strong>gates promotion</strong>; the model is then deployed <strong>shadow -&gt; canary -&gt; live</strong>, watched under <strong>online A/B with guardrails</strong>, and <strong>promoted or rolled back</strong>. The two feature stores share <strong>identical feature definitions</strong> — that's the explicit defense against <strong>training/serving skew</strong>.</p>
+<h3>(b) Mermaid flowchart</h3>
+<div class="mermaid">
+flowchart TD
+  client[Clients - feed/app] --> gw[API Gateway authN/Z]
+  gw --> rec[Recommendation Service - orchestrator]
+
+  rec -->|1 candidates| cg[Candidate Generation - ANN + source lists]
+  cg --> emb[(Item embedding ANN index)]
+  rec -->|2 features| fon[(Feature Store ONLINE - in-memory KV)]
+  rec -->|3 variant| exp[Experiment / Assign]
+
+  cg --> rank[Ranking Service - business rules]
+  fon --> rank
+  exp --> rank
+  rank -->|batched infer| ms[[Model Server - versioned, GPU, batching]]
+  ms --> rank
+  rank --> resp[Top-k + modelVersion + experimentId]
+
+  resp -->|impressions| bus[[Event Stream Bus - Kafka]]
+  client -->|click/watch/skip| bus
+  bus --> rtf[Real-time Feature Compute] --> fon
+  bus --> dw[(Data Warehouse - raw logs, source of truth)]
+  dw --> foff[(Feature Store OFFLINE - point-in-time)]
+  foff -. SAME feature defs, no skew .- fon
+  foff --> train[Training Pipeline - labels + as-of join]
+  train --> reg[(Model Registry - versioned)]
+  reg -->|offline eval gates| deploy[Deploy: shadow -> canary -> live]
+  deploy --> ms
+  deploy -->|A/B + guardrails| exp
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<p><strong>Online feature store — in-memory KV (low-latency lookup).</strong> <code>entityId (user|item) -&gt; {feature: value}</code>, TTL'd, sharded across the fleet; item features heavily cached (shared across users). <em>First-principles:</em> the serving path needs <strong>&lt;10 ms</strong> to fetch features for ~500 candidates per request at 10^5 QPS; a disk DB can't, and recomputing features per request would blow the budget and risk skew. So features are <strong>precomputed/streamed</strong> and just <strong>looked up</strong>.</p>
+<p><strong>Offline feature store — columnar warehouse tables, point-in-time correct.</strong> Same feature definitions materialized historically with event timestamps so training joins features <strong>as-of</strong> each label's time (no leakage of future data). <em>First-principles:</em> training and serving must use the <strong>same feature logic</strong>; the offline/online split with shared definitions is exactly how you kill <strong>training/serving skew</strong> — the system's most insidious bug.</p>
+<p><strong>Item embedding index — ANN (sharded, in-RAM)</strong> for candidate generation: user/context embedding -&gt; nearest item embeddings over 10^8 items. <em>First-principles:</em> candidate generation must be <strong>sub-linear</strong> in catalog size; brute-force over 10^8 per request is impossible, so approximate nearest neighbor over learned embeddings turns it into a ~10–30 ms lookup.</p>
+<p><strong>Model Registry + artifact store</strong> — versioned model binaries + metadata (training data range, metrics, feature schema, lineage). <em>First-principles:</em> <strong>versioning is mandatory</strong> for safe rollout/rollback, reproducibility, and attributing online outcomes to the exact model that produced them.</p>
+<p><strong>Event log / stream bus (Kafka) + Data Warehouse</strong> — durable append-only interaction logs are the <strong>source of truth for labels</strong>; the warehouse is the analytical store the training pipeline reads. <em>First-principles:</em> the model is only as good as its data flywheel; losing interaction logs means losing the ability to improve, so these are 11-nines durable.</p>
+<p><strong>Model Server</strong> — GPU-served, <strong>request-batching</strong>, holds multiple <strong>versions</strong> simultaneously (for shadow/canary), hot-swappable. Ranker and candidate-gen models are independent deployables.</p>
+<h2>8) Deep dive</h2>
+<p>The crux is <strong>(A) the two-stage funnel (candidate generation -&gt; ranking)</strong>, <strong>(B) the feature store + training/serving skew</strong>, <strong>(C) low-latency inference via batching + versioning/rollout</strong>, and <strong>(D) the feedback loop + A/B/eval</strong>. Spend the most time on A, B, C.</p>
+<p><strong>A. Two-stage funnel: candidate generation then ranking.</strong></p>
+<ul>
+<li><strong>Why two stages:</strong> you cannot run a heavy model over 10^8 items per request (5e7 inferences just for one user). <strong>Stage 1 (candidate generation)</strong> is cheap and high-recall: narrow 10^8 -&gt; ~500 using <strong>ANN over embeddings</strong> (two-tower model: user-tower embedding retrieves item-tower embeddings) plus <strong>precomputed source lists</strong> (trending, follow-graph, recently-engaged, co-visitation). Union + dedup. Optimized for <em>recall</em> (don't miss good items) and speed, not precision.</li>
+<li><strong>Stage 2 (ranking)</strong> is expensive and high-precision: score the ~500 candidates with a heavy model using <strong>rich features</strong> (user x item interactions, real-time context). Optimized for ordering quality. Often <strong>multi-objective</strong> (predict click <em>and</em> watch-time <em>and</em> a long-term-value proxy) blended into one score, then <strong>business rules</strong> (dedup, diversity to avoid filter bubbles, freshness, policy/safety filters) re-shape the final list.</li>
+<li><strong>Sometimes a stage 1.5 (lightweight pre-ranker)</strong> trims ~500 -&gt; ~100 with a cheap model so the heavy ranker scores fewer items — a latency/quality knob.</li>
+<li><strong>Cold start:</strong> new users -&gt; popularity/context-based candidates + exploration; new items -&gt; content-based features + an <strong>exploration budget</strong> (epsilon-greedy / bandit) so they get impressions to gather signal, balancing exploit vs explore.</li>
+</ul>
+<p><strong>B. Feature store + training/serving skew (the signature ML-systems concern).</strong></p>
+<ul>
+<li><strong>The skew problem:</strong> if training computes a feature one way (batch SQL over the warehouse) and serving computes it another way (online code path), the model sees <strong>different feature distributions</strong> in production than it trained on, and silently underperforms. This is the most common, most insidious ML production bug.</li>
+<li><strong>The fix — one definition, two materializations:</strong> define each feature <strong>once</strong>; materialize it <strong>offline</strong> (historical, point-in-time correct, for training) and <strong>online</strong> (fresh, low-latency, for serving) from the <strong>same logic</strong>. The feature store guarantees parity. Serving <em>looks up</em> features; it doesn't recompute them ad hoc.</li>
+<li><strong>Point-in-time correctness:</strong> training joins must use features <strong>as they were at the label's event time</strong>, never later values (which would leak the future and inflate offline metrics). The offline store enforces as-of joins.</li>
+<li><strong>Freshness tiers:</strong> real-time features (session, last-N actions, rolling counts) are computed by <strong>streaming</strong> off the event bus and written to the online store within <strong>seconds</strong>; batch features (long-term affinities) refresh <strong>hourly/daily</strong>. The serving path reads whichever tier each feature lives in.</li>
+<li><strong>Feature monitoring:</strong> watch online vs offline feature distributions for drift; alert when a feature's serving distribution diverges from training — early warning of skew or upstream breakage.</li>
+</ul>
+<p><strong>C. Low-latency inference: batching + versioning + safe rollout.</strong></p>
+<ul>
+<li><strong>Request batching is what makes the ranker affordable:</strong> group the ~500 candidates of a request (and, with a few-ms window, candidates across concurrent requests) into a <strong>single GPU forward pass</strong>. GPUs are throughput devices — batching turns 5e7 inferences/s into a tractable number of batched passes. Tune batch size vs the latency budget (bigger batch = better throughput but more queueing delay).</li>
+<li><strong>Model versioning:</strong> the server holds multiple versions at once. <strong>Rollout is progressive: shadow (run new model on live traffic, log but don't serve, compare) -&gt; canary (small % of real traffic) -&gt; ramp -&gt; live</strong>, with <strong>instant rollback</strong>. Versioned artifacts in the registry make this reproducible and auditable.</li>
+<li><strong>Serving optimizations:</strong> model <strong>distillation/quantization</strong> to shrink the ranker; <strong>caching</strong> of user/item embeddings and shared item features; co-locate feature fetch with ranking to cut hops; <strong>early-exit / cheaper fallback model</strong> under load (graceful degradation).</li>
+<li><strong>Why not precompute all recs offline?</strong> Stale — can't reflect just-happened behavior or real-time context, and 10^8 users x fresh context is too much to precompute. Online serving with real-time features is required for quality; precomputation is only a fallback.</li>
+</ul>
+<p><strong>D. Feedback loop + A/B + offline eval (closing the system).</strong></p>
+<ul>
+<li><strong>The flywheel:</strong> served lists + interactions -&gt; stream bus -&gt; labels (click=positive, skip=negative, with care around position bias) -&gt; feature/label tables -&gt; retrain -&gt; deploy -&gt; better recs -&gt; more/better data. Logging the <strong>exact modelVersion + experimentId</strong> that served each list is essential to attribute outcomes correctly.</li>
+<li><strong>Offline eval gates promotion:</strong> replay the new model on held-out logged data; compute ranking metrics (AUC, nDCG, calibration). A model that doesn't beat the incumbent offline never reaches live traffic. Beware <strong>offline/online gap</strong> — offline wins don't always translate, which is why online A/B is the final arbiter.</li>
+<li><strong>Online A/B:</strong> randomized variant assignment, measure the <strong>real objective</strong> (engagement, watch-time) plus <strong>guardrail metrics</strong> (latency, diversity, policy violations, long-term retention proxies). Promote on a real, significant win; <strong>roll back</strong> instantly on guardrail regressions.</li>
+<li><strong>Position/exposure bias + feedback loops:</strong> users only interact with what we <em>showed</em> them, so naive training reinforces itself. Mitigate with <strong>exploration</strong> (bandits), inverse-propensity weighting, and logging exposures so the model learns from non-clicks too.</li>
+</ul>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Choice &amp; why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Architecture</td>
+<td><strong>Two-stage candidate-gen -&gt; ranking</strong> over single-stage scoring — can't run a heavy model on 10^8 items/request; cheap recall stage then expensive precision stage.</td>
+</tr>
+<tr>
+<td>Serving</td>
+<td><strong>Online inference with real-time features</strong> over fully precomputed recs — precompute is stale and can't use just-happened context; precompute is only a degradation fallback.</td>
+</tr>
+<tr>
+<td>Features</td>
+<td><strong>Feature store: one definition, offline+online materializations</strong> — the only robust defense against training/serving skew. Cost: infra + discipline.</td>
+</tr>
+<tr>
+<td>Inference throughput</td>
+<td><strong>Request batching on GPU</strong> over per-request inference — turns 5e7 inferences/s into batched passes; cost is a few ms of batching delay.</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td><strong>Bounded-stale online features</strong> over strong consistency — a feature seconds-old is fine; the hard guarantee is <em>parity with training</em>, not freshness.</td>
+</tr>
+<tr>
+<td>Rollout</td>
+<td><strong>Shadow -&gt; canary -&gt; A/B -&gt; live with instant rollback</strong> over big-bang deploy — models can regress in ways offline eval misses; de-risk progressively.</td>
+</tr>
+<tr>
+<td>Eval</td>
+<td><strong>Offline gate + online A/B</strong> — offline is cheap and catches regressions early; online is the truth (offline/online gap is real).</td>
+</tr>
+<tr>
+<td>Cold start / bias</td>
+<td><strong>Exploration (bandit) budget</strong> over pure exploitation — avoids self-reinforcing feedback loops and starves-new-items; cost is some short-term engagement.</td>
+</tr>
+<tr>
+<td>Multi-objective</td>
+<td><strong>Blend predicted click/watch/value + business rules</strong> over single metric — optimizing clicks alone degrades long-term value and diversity.</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Ranking inference cost/latency (the hot path):</strong> scoring ~500 candidates at 10^5 QPS. <em>Mitigation:</em> request batching, a lightweight pre-ranker to trim candidates, distillation/quantization, GPU autoscaling, early-exit fallback under load.</li>
+<li><strong>Training/serving skew (the silent killer):</strong> model quietly underperforms in prod. <em>Mitigation:</em> shared feature definitions via the feature store, point-in-time-correct training joins, feature-distribution monitoring (online vs offline), shadow-mode comparison before promotion.</li>
+<li><strong>Stale / missing features at serving:</strong> a feature pipeline lags or a lookup misses. <em>Mitigation:</em> TTLs + defaults/imputation, monitor feature freshness, degrade to a model variant that doesn't need the missing feature.</li>
+<li><strong>Feedback loop / position bias:</strong> model reinforces what it already shows; new items starve. <em>Mitigation:</em> exploration (bandits/epsilon-greedy), inverse-propensity weighting, log exposures (learn from non-clicks), diversity rules.</li>
+<li><strong>Model regression reaching live traffic:</strong> <em>Mitigation:</em> offline eval gate + shadow + canary + guardrail-monitored A/B + instant rollback; never big-bang.</li>
+<li><strong>Hot item / hot user feature contention:</strong> <em>Mitigation:</em> cache shared item features (read-mostly), shard the online store, replicate hot keys.</li>
+<li><strong>Candidate-gen ANN recall collapse:</strong> over-tuned for latency -&gt; good items never reach the ranker. <em>Mitigation:</em> monitor candidate recall, keep multiple candidate sources (ANN + lists) so no single source is a SPOF.</li>
+<li><strong>Cascading failure if ranker fleet saturates:</strong> <em>Mitigation:</em> load-shedding, cheaper fallback model, cached/popular recs — degrade, never blank-feed.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>First thing that breaks: ranking inference cost</strong> at 10× QPS/candidates. <em>Evolve:</em> heavier investment in pre-ranking (trim candidates earlier), model distillation, hardware (newer accelerators), smarter batching, and per-surface model specialization.</li>
+<li><strong>Feature store throughput</strong> at 10× lookups. <em>Evolve:</em> more aggressive caching of shared item features, finer sharding, co-locate feature compute with serving, pre-join candidate features.</li>
+<li><strong>Candidate pool growth (10^9 items):</strong> <em>Evolve:</em> hierarchical/quantized ANN (IVF-PQ), more candidate sources, multi-stage retrieval (coarse -&gt; fine ANN).</li>
+<li><strong>Real-time freshness at higher event rates:</strong> <em>Evolve:</em> scale streaming feature compute, push truly-real-time features (last few seconds) into a fast online tier.</li>
+<li><strong>Multi-region:</strong> serve recs from region-local fleets + feature-store replicas near users; train centrally, replicate models to regional servers; keep the latency budget local.</li>
+<li><strong>Model sophistication:</strong> multi-task/multi-objective models, sequence models for session intent, online/continual learning for faster adaptation, and (given the role) <strong>LLM-assisted ranking or generative recommendation</strong> — gated, as always, by rigorous offline+online eval.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"Why two stages instead of one ranking model?"</strong> You can't score 10^8 items per request (5e7 inferences for one user). Stage 1 (ANN + source lists) cheaply gets ~500 high-recall candidates; stage 2 ranks those with a heavy precise model. Cost scales with candidates, not catalog.</li>
+<li><strong>"What is training/serving skew and how do you prevent it?"</strong> When training and serving compute features differently, the model sees a different distribution in prod and underperforms silently. Prevent it with a feature store: one feature definition, offline + online materializations from the same logic, point-in-time-correct training joins, and distribution monitoring.</li>
+<li><strong>"How do you serve a heavy ranker within ~40 ms at 10^5 QPS?"</strong> Request batching (group candidates per request and across requests into GPU forward passes), a lightweight pre-ranker, distillation/quantization, feature caching, and graceful degradation under load.</li>
+<li><strong>"How do you ship a new model safely?"</strong> Offline eval gate (replay on held-out logs) -&gt; shadow (log, don't serve, compare) -&gt; canary (small %) -&gt; ramp under A/B with guardrails -&gt; live, with instant rollback. Versioned artifacts in a registry.</li>
+<li><strong>"How do you know a model is actually better?"</strong> Offline metrics (AUC/nDCG/calibration) to gate, then online A/B on the real objective (engagement/watch-time) plus guardrails (latency, diversity, policy). Online is the arbiter because of the offline/online gap.</li>
+<li><strong>"How do real-time features work — e.g. 'I just watched X'?"</strong> Interactions flow through the stream bus; streaming feature compute updates session/rolling-count features in the online store within seconds; the next request reads them. Same definitions are materialized offline for training.</li>
+<li><strong>"What about new users/items (cold start) and feedback-loop bias?"</strong> Popularity/content fallbacks + an exploration budget (bandits) so new items get impressions; inverse-propensity weighting and exposure logging so the model isn't trapped reinforcing what it already shows.</li>
+<li><strong>"Why not precompute all recommendations nightly?"</strong> Stale — can't reflect just-happened behavior or live context, and 10^8 users x fresh context is too much to precompute. Online serving with real-time features is required for quality; precompute is a fallback only.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–2 min</td>
+<td>Open with the <strong>résumé hook</strong> — "I work at the ML-systems x product intersection (RAG, AI-assisted dev); here's the full production ML stack." Signal AI Fluency.</td>
+</tr>
+<tr>
+<td>2–8 min</td>
+<td><strong>Clarify:</strong> what/who are we recommending? catalog + user scale? latency budget? objective (multi-objective?)? freshness/real-time? cold start? eval/experiment platform?</td>
+</tr>
+<tr>
+<td>8–12 min</td>
+<td><strong>FR + NFR + estimation:</strong> surface the killers — can't score 10^8/request (two-stage), 5e7 inferences/s (batching), training/serving skew.</td>
+</tr>
+<tr>
+<td>12–18 min</td>
+<td><strong>API + high-level architecture:</strong> draw the ASCII flow — serving path (candidate gen -&gt; features -&gt; rank) + feedback/offline path (logs -&gt; features/labels -&gt; train -&gt; registry -&gt; rollout).</td>
+</tr>
+<tr>
+<td>18–22 min</td>
+<td>Walk the <strong>serving path</strong> (orchestrator owns budget; parallel cand-gen + feature fetch + experiment assign; batched ranking; business rules) and the <strong>feedback loop</strong>.</td>
+</tr>
+<tr>
+<td>22–44 min</td>
+<td><strong>Deep dive (the crux):</strong> (A) two-stage funnel; (B) feature store + training/serving skew + point-in-time correctness + freshness tiers; (C) batching + versioning + shadow/canary rollout. Most time here.</td>
+</tr>
+<tr>
+<td>44–50 min</td>
+<td><strong>Feedback loop + A/B + offline eval:</strong> the flywheel, offline gate, online A/B with guardrails, exploration vs position bias.</td>
+</tr>
+<tr>
+<td>50–56 min</td>
+<td><strong>Tradeoffs + failure modes:</strong> ranker cost, skew, stale features, feedback-loop bias, model regression, graceful degradation (never blank-feed).</td>
+</tr>
+<tr>
+<td>56–60 min</td>
+<td><strong>10× evolution + wrap:</strong> pre-ranking, distillation, hierarchical ANN, multi-region, generative/LLM-assisted ranking. Restate the big idea: <strong>two-stage funnel to make scoring tractable, a feature store that kills training/serving skew, batched versioned inference for low latency, and a logged feedback loop closed by offline+online eval.</strong></td>
+</tr>
+</tbody>
+</table></article></div></body></html>

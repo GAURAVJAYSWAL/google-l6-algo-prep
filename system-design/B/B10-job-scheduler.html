@@ -1,0 +1,433 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>B10 — Design a distributed job scheduler</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="index.html">&larr; All system-design questions</a><article class="doc"><h1>B10 — Design a distributed job scheduler</h1>
+<p>Design the system that reliably runs jobs at the right time across a fleet — cron-style recurring jobs, one-shot delayed tasks, and triggered background work — at the scale of millions of jobs, with no missed or duplicated runs despite machine failures. It tests distributed-systems fundamentals head-on: <strong>leader election</strong>, <strong>sharding of jobs</strong>, <strong>cron-at-scale</strong>, <strong>exactly-once vs at-least-once</strong>, fault tolerance / re-assignment, backpressure, priority, and observability. Google asks it because scheduling underpins everything (builds, tests, batch pipelines, background work) and it forces you to confront the hardest distributed-systems tradeoffs explicitly — a canonical L6 prompt and a DevEx staple (build/test orchestration).</p>
+<h2>(Section B only) Lead with this — your résumé hook</h2>
+<p>"I've built distributed systems and event-driven background processing, so a job scheduler is right in my lane — and I know the two questions that actually decide the design are 'how do we guarantee a job fires once and only once across machine failures?' and 'how do we scale to millions of timers without a single coordinator becoming the bottleneck?'. I'll design it around a <strong>sharded, replicated, durable job store</strong> with <strong>leader-elected coordinators per shard</strong> dispatching to a <strong>stateless worker pool</strong>, and I'll be explicit that the honest contract is <strong>at-least-once delivery with idempotent execution</strong> for effective exactly-once. I'll spend my depth budget on the timing-wheel + dispatch mechanism and on the exactly-once / fault-tolerance story, because that's where schedulers are won or lost."</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>Job types:</strong> Recurring cron jobs, one-shot delayed tasks ("run in 30 min"), and/or event-triggered jobs? Each has a different timing mechanism. (I'll assume all three.)</li>
+<li><strong>Timing precision:</strong> Must a job fire within seconds of its scheduled time, or is minute-level drift acceptable? Sub-second precision at scale is a very different (and harder) problem.</li>
+<li><strong>Scale:</strong> How many scheduled jobs total, and peak dispatches/sec? Millions of jobs with bursty fire times (e.g. everyone schedules "midnight") drives the sharding and backpressure design.</li>
+<li><strong>Delivery semantics:</strong> Is the requirement <strong>at-least-once</strong> (may double-run, handlers must be idempotent) or <strong>exactly-once</strong> (never double-run)? This is THE question — true exactly-once is impossible across failures; I'll push for at-least-once + idempotency.</li>
+<li><strong>Execution model:</strong> Does the scheduler <em>run</em> the job (owns workers) or just <em>trigger</em> an external service/queue? Affects whether I design a worker pool or a dispatch-to-queue contract.</li>
+<li><strong>Job duration:</strong> Milliseconds, or long-running (minutes/hours)? Long jobs need lease renewal / heartbeating, not fire-and-forget.</li>
+<li><strong>Priority / fairness:</strong> Are some jobs higher priority? Must one tenant not starve another (multi-tenant fairness)? Drives priority queues and quotas.</li>
+<li><strong>Failure policy:</strong> On a failed run — retry with backoff? Max attempts? Dead-letter? And on a missed window (system down through a scheduled time) — skip, or backfill/catch-up?</li>
+<li><strong>Consistency vs availability:</strong> If we can't be sure a job ran (e.g. coordinator crashed mid-dispatch), do we prefer to <strong>risk a duplicate</strong> (at-least-once) or <strong>risk a miss</strong> (at-most-once)? Usually duplicate-with-idempotency.</li>
+<li><strong>Observability needs:</strong> Do users need run history, audit, alerting on missed/failed jobs, and the ability to query "did job X run"? This is a hard requirement for a platform.</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> The exactly-once question is the centerpiece — they want you to <em>know</em> that true exactly-once delivery is impossible in a distributed system and to land on <strong>at-least-once + idempotent execution (dedup keys)</strong> as the pragmatic contract. The "single coordinator" trap is the other tell: they want <strong>sharded jobs with per-shard leader election</strong>, not one global scheduler. Asking about missed-window backfill and lease renewal for long jobs signals you've operated such systems, not just read about them.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In scope:</strong>
+- <strong>Schedule jobs:</strong> recurring cron expressions, one-shot delayed jobs, and event-triggered jobs.
+- <strong>Reliable dispatch at the scheduled time</strong> (within the precision SLO), at scale (millions of jobs).
+- <strong>Exactly-once-effect execution:</strong> at-least-once delivery + idempotency so a job's <em>effect</em> happens once.
+- <strong>Fault tolerance / re-assignment:</strong> if a coordinator or worker dies, its jobs are reliably picked up — no lost schedules.
+- <strong>Leader election + sharding:</strong> partition jobs across coordinators; each shard has a leader; no single global scheduler.
+- <strong>Retries + failure policy:</strong> retry with backoff, max attempts, dead-letter; missed-window catch-up policy.
+- <strong>Backpressure:</strong> absorb fire-time bursts without overrunning downstream/workers.
+- <strong>Priority + fairness:</strong> higher-priority jobs first; per-tenant fairness/quotas.
+- <strong>Observability:</strong> run history, status, audit, alerting on missed/failed jobs.</p>
+<p><strong>Out of scope (defer):</strong>
+- The actual business logic of jobs (we dispatch/trigger; handlers are user code).
+- A full workflow/DAG engine with inter-job dependencies (I'll note the extension; this is a <em>scheduler</em>, not an orchestrator).
+- Resource scheduling / bin-packing of containers (assume a worker/compute pool exists).
+- Long-term log warehousing internals.
+- Authn/identity internals (assume RBAC exists).</p>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scale</td>
+<td>~50M scheduled jobs; peak <strong>~100k dispatches/sec</strong> (bursty — midnight/top-of-hour spikes). Worker fleet sized to absorb bursts.</td>
+</tr>
+<tr>
+<td>Timing precision</td>
+<td><strong>Fire within ~1-5 s of scheduled time at p99.</strong> Tight enough for orchestration; not a hard-real-time system.</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td><strong>99.99%</strong> for the scheduling control plane. A scheduler that's down means missed jobs across the org — Tier-1. Must survive node and zone failures.</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td><strong>Job state strongly consistent</strong> (a job's "next run" / lease must not be ambiguous → use consensus/quorum). <strong>Delivery: at-least-once</strong>; execution effect: exactly-once via idempotency.</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td>Job definitions + schedule state + run history: <strong>durable + replicated</strong> (a lost schedule = a silently missed job, unacceptable).</td>
+</tr>
+<tr>
+<td>Throughput</td>
+<td>Sustain burst dispatch without dropping jobs; degrade by <em>delaying</em> low-priority work, never by losing it.</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>RBAC on job CRUD; tenant isolation; per-tenant quotas to prevent noisy-neighbor; audit of every run.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>JOBS &amp; DISPATCH
+  Total scheduled jobs          ~50,000,000
+  Avg fire rate (uniform)       if each runs ~1/hour -&gt; 50M/3600 ~ 14,000/sec
+  BUT bursty: top-of-hour/midnight spikes
+    say 30% fire within the same minute window -&gt; 15M / 60s = 250,000/sec PEAK
+  Design dispatch target        ~100,000 - 250,000 dispatches/sec (peak)
+
+SHARDING
+  Coordinators                  shard jobs across, say, ~256 shards
+  Jobs per shard                50M / 256 ~ 195,000 jobs/shard
+  Dispatches/shard at peak      250k / 256 ~ ~1,000/sec/shard  (very manageable)
+  =&gt; sharding turns an impossible single-node problem into easy per-shard work.
+
+JOB STATE STORE
+  Per job record                ~1 KB (cron expr, next_run, payload ref, state)
+  50M * 1KB                     ~50 GB job metadata (replicated 3x -&gt; 150 GB)
+  Time-indexed structure        next_run index for &quot;what fires in the next minute&quot;
+
+RUN HISTORY (observability)
+  Runs/day                      ~50M jobs * ~24 runs/day(avg) = ~1.2e9 runs/day
+  ~1.2e9 / 86400                ~14,000 run records/sec (more at bursts)
+  Per record ~500 bytes         ~7 MB/sec -&gt; ~600 GB/day -&gt; TSDB/warehouse, TTL'd
+
+WORKER FLEET
+  Peak dispatch 250k/sec, avg job ~5s wall
+    in-flight = 250k * 5 = ~1.25M concurrent executions at peak
+    at ~100 jobs/worker host -&gt; ~12,500 workers at peak (autoscaled down off-peak)
+  (If scheduler only TRIGGERS a queue, this fleet is the downstream's problem.)
+
+QUEUE / BACKPRESSURE BUFFER
+  Burst of 250k/sec into a durable queue smooths to worker drain rate.
+  Buffer a few minutes of peak: 250k * 60 * ~1KB ~ 15 GB queue depth -&gt; fine.
+</code></pre>
+<p>The key insight the math reveals: a <strong>single coordinator can't dispatch 250k/sec of bursty timers</strong>, but <strong>sharded across 256 coordinators it's ~1k/sec each</strong> — trivial. And the burst is absorbed by a <strong>durable queue + backpressure</strong>, so workers drain at their own pace without dropping jobs. Storage is modest (~150 GB job state); run history is the high-volume, TTL'd stream.</p>
+<h2>5) API design</h2>
+<pre><code># Job management (control plane, RBAC-gated)
+POST /v1/jobs
+  { type: &quot;cron&quot;|&quot;once&quot;|&quot;event&quot;,
+    schedule: &quot;0 */1 * * *&quot; | run_at_ts | event_key,
+    target: { kind:&quot;http&quot;|&quot;queue&quot;|&quot;function&quot;, endpoint, payload },
+    idempotency_key_template,        # how to derive a dedup key per run
+    retry: { max_attempts, backoff }, priority, tenant }
+  -&gt; { job_id, next_run }
+
+PUT    /v1/jobs/{job_id}            # update schedule/target
+DELETE /v1/jobs/{job_id}           # cancel
+POST   /v1/jobs/{job_id}:pause
+POST   /v1/jobs/{job_id}:trigger   # manual one-off run
+
+# Execution callback (worker -&gt; scheduler) -- closing the loop
+POST /v1/runs/{run_id}:ack    { status: succeeded|failed, attempt }
+POST /v1/runs/{run_id}:heartbeat   # long jobs: renew lease, prevent re-dispatch
+
+# Observability
+GET /v1/jobs/{job_id}/runs          # run history (status, timing, attempts)
+GET /v1/jobs?state=overdue          # missed / overdue jobs (alerting)
+GET /v1/runs/{run_id}               # single run detail
+</code></pre>
+<p>Design notes: each run carries a <strong>deterministic idempotency key</strong> (e.g. <code>job_id + scheduled_fire_time</code>) so a duplicate dispatch is detected and the <em>effect</em> happens once. Long jobs <strong>heartbeat</strong> to renew their lease so the scheduler doesn't re-dispatch them as failed. The <code>:ack</code> closes the loop so the scheduler knows a run finished (vs the worker dying mid-run).</p>
+<h2>6) Architecture — request &amp; data flow</h2>
+<h3>(a) ASCII layered diagram</h3>
+<pre><code>   Clients (services, CLI, UI)  --- schedule / cancel / query jobs
+                  |  POST /v1/jobs
+                  v
+        [ API Gateway / Job Mgmt Service ]      authN, RBAC, validate cron,
+        - CRUD jobs, compute next_run            tenant quotas
+                  |  write job + next_run
+                  v
+        [ Job State Store (sharded + replicated, consensus) ]
+        - source of truth: job def, next_run, lease, state
+        - time-indexed: &quot;jobs due in the next window&quot;
+        - sharded by job_id hash; each shard = a replicated consensus group (R+W&gt;N)
+                  ^                          ^
+        per-shard | ownership               | durable run records
+                  |                          |
+   +--------------+-------------+            |
+   |  COORDINATORS (per shard)  |            |
+   |  - LEADER ELECTION per     |            |
+   |    shard (only the leader  |            |
+   |    dispatches that shard)  |            |
+   |  - TIMING WHEEL / due-poll: |           |
+   |    scan next_run index,    |            |
+   |    claim due jobs (lease)  |            |
+   |  - enqueue dispatch        |            |
+   +-------------+--------------+            |
+                 |  due jobs (with dedup key + lease)
+                 v                           |
+        [ Dispatch Queue (durable, partitioned) ]   &lt;-- BACKPRESSURE buffer,
+        - priority lanes (hi/med/lo)                     smooths fire-time bursts
+        - per-tenant fairness                            into worker drain rate
+                 |  pull
+                 v
+        [ Worker Pool (stateless, autoscaled) ]
+        - claim run (idempotency key)               &lt;-- runs OR triggers target
+        - check dedup store -&gt; skip if already done
+        - execute job / call target
+        - HEARTBEAT (renew lease for long jobs)
+        - ACK result back to scheduler
+            |          |               |
+   ack/state|          | heartbeat     | dedup check/mark
+            v          v               v
+        [ Job State ]  [ Lease/Heartbeat ]   [ Dedup Store (idempotency keys) ]
+                 |
+                 v
+        [ Run History Store (TSDB/warehouse, TTL) ] --&gt; [ Observability / Alerting ]
+                                                         missed/overdue/failed jobs
+
+   Cross-cutting:
+   [ Coordination service (consensus) ]  leader election + shard assignment
+   [ Failure detector ]  dead coordinator/worker -&gt; reassign shard / re-dispatch lease
+</code></pre>
+<p><strong>Schedule path (write).</strong> A client calls <code>POST /v1/jobs</code>; the <strong>Job Management Service</strong> validates the cron expression, enforces tenant quotas/RBAC, computes the first <code>next_run</code>, and writes the job to the <strong>sharded, replicated Job State Store</strong>. The store is partitioned by <code>job_id</code> hash; each shard is a <strong>consensus group (quorum R+W&gt;N)</strong> so the job definition, <code>next_run</code>, and lease are strongly consistent — there is never ambiguity about a job's next fire time or who owns it.</p>
+<p><strong>Dispatch path (the hot loop).</strong> Each shard has <strong>leader-elected coordinators</strong>; only the leader for a shard dispatches that shard's jobs (this is how we avoid a single global scheduler <em>and</em> avoid two coordinators firing the same job). The leader runs a <strong>timing wheel / due-poll</strong>: it scans the time-indexed <code>next_run</code> index for jobs due in the imminent window, <strong>claims</strong> each due job by writing a short <strong>lease</strong> (atomically, via the consensus store), and enqueues a dispatch carrying the job's <strong>deterministic idempotency key</strong> (<code>job_id + scheduled_fire_time</code>). Dispatches flow into a <strong>durable, partitioned queue</strong> with <strong>priority lanes</strong> and <strong>per-tenant fairness</strong> — this queue is the <strong>backpressure buffer</strong> that absorbs the midnight burst and lets workers drain at their own rate. <strong>Stateless workers</strong> pull a dispatch, check the <strong>dedup store</strong> for the idempotency key (skip if already executed), run or trigger the target, <strong>heartbeat</strong> to renew the lease for long jobs, and <strong>ack</strong> the result. After a successful run the coordinator computes the <em>next</em> <code>next_run</code> (for cron jobs) and updates the store; a run record lands in the <strong>Run History Store</strong>.</p>
+<p><strong>Failure / re-assignment path.</strong> A <strong>failure detector</strong> + the <strong>consensus coordination service</strong> watch coordinators and workers. If a coordinator dies, its shards are <strong>reassigned</strong> to a new leader, which resumes dispatching from the durable <code>next_run</code> index — nothing is lost because state lives in the replicated store, not in the coordinator. If a worker dies mid-run, its <strong>lease expires</strong> (no heartbeat) and the coordinator <strong>re-dispatches</strong> the job; the dedup store guarantees that if the dead worker <em>had</em> already completed the effect, the retry is a no-op. This is precisely the at-least-once + idempotency contract.</p>
+<p><strong>Why at-least-once, not true exactly-once.</strong> Consider: a worker finishes the job but crashes before its ack reaches the scheduler. The scheduler can't tell "done-but-unacked" from "never-ran," so to avoid a <em>miss</em> it must re-dispatch — risking a duplicate. True exactly-once delivery across such failures is impossible; we make the <em>effect</em> exactly-once with the dedup store + idempotent handlers. State that explicitly — it's the crux.</p>
+<h3>(b) Mermaid flowchart</h3>
+<div class="mermaid">
+flowchart TD
+  client[Clients: schedule / cancel / query] --> mgmt[Job Mgmt Service: RBAC + validate cron]
+  mgmt --> store[(Job State Store - sharded, replicated, consensus)]
+
+  subgraph SHARD [Per-shard coordination]
+    coord[Coordinator - LEADER per shard] -- scan next_run + claim lease --> store
+    coord --> dq[[Dispatch Queue - durable, priority, fairness]]
+  end
+
+  dq --> worker[Worker Pool - stateless]
+  worker -- check/mark idempotency key --> dedup[(Dedup Store)]
+  worker -- execute / trigger target --> target[Job target: http/queue/function]
+  worker -- heartbeat renew lease --> store
+  worker -- ack result --> coord
+  coord -- compute next run --> store
+  worker --> runs[(Run History - TSDB, TTL)]
+  runs --> obs[Observability / Alerting: missed + failed]
+
+  consensus[(Coordination svc - consensus)] -- leader election + shard assignment --> coord
+  fd[Failure detector] -. dead node -> reassign / re-dispatch .-> coord
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<p><strong>Job definition + schedule state (source of truth).</strong></p>
+<pre><code>Job {
+  job_id, tenant, type: cron|once|event,
+  schedule: cron_expr | run_at | event_key,
+  target: { kind, endpoint, payload_ref },
+  next_run_ts,                  # time-indexed for due-scan
+  lease: { owner, expires_at } | null,
+  state: scheduled|dispatched|running|paused,
+  retry_policy, priority, idempotency_template, version
+}
+</code></pre>
+<p>Stored in a <strong>sharded, replicated, strongly-consistent store</strong> (quorum / consensus, R+W&gt;N). Why strong consistency: the <code>next_run</code> and <code>lease</code> must be unambiguous — if two coordinators disagreed on whether a job is leased, we'd double-fire or miss. The defining requirement is <em>correct, durable, contended state</em>, which is a consensus problem (Raft/Paxos-style), not an eventual KV. Sharded by <code>job_id</code> hash so no shard is a bottleneck; <strong>time-indexed on <code>next_run_ts</code></strong> so the due-scan is a cheap range read ("jobs due in the next minute") rather than a full scan of 50M jobs.</p>
+<p><strong>Dispatch queue.</strong> A <strong>durable, partitioned log/queue</strong> (commit-log semantics) with priority lanes. It's the backpressure buffer and must not lose messages (a lost dispatch = a missed job), so durability + replication, with at-least-once delivery to workers. Partitioned for throughput and per-tenant fairness.</p>
+<p><strong>Dedup / idempotency store.</strong> A <strong>fast KV</strong> keyed by idempotency key (<code>job_id + scheduled_fire_time</code>), recording "this run's effect already happened." Reads/writes on the hot execution path → low-latency LSM-tree KV with TTL (keys expire after the run window). This is what converts at-least-once delivery into exactly-once <em>effect</em>.</p>
+<p><strong>Lease / heartbeat state.</strong> Lives with the job state (lease fields) in the consensus store so it's strongly consistent — lease ownership is exactly the thing that must never be ambiguous. Heartbeats extend <code>expires_at</code>.</p>
+<p><strong>Run history.</strong> High-volume, append-only, time-series → <strong>TSDB / columnar warehouse</strong> with TTL. Powers run history queries and the observability/alerting layer (overdue/failed jobs). Decoupled from the hot path; write-heavy, analytics-read.</p>
+<p><strong>Coordination / membership.</strong> A <strong>consensus-backed coordination service</strong> (Raft/Paxos, e.g. a ZooKeeper/etcd-shaped component) for leader election per shard and shard-to-coordinator assignment — the one piece that genuinely needs distributed consensus for membership.</p>
+<p>Justification theme: <strong>strong consistency exactly where contention lives (job state, leases, leadership) via consensus</strong>, a <strong>durable queue for backpressure</strong>, an <strong>idempotency KV for exactly-once effect</strong>, and an <strong>append-only TSDB for history</strong> — each store matched to its access pattern, with consensus reserved for the small, contended, correctness-critical core.</p>
+<h2>8) Deep dive</h2>
+<h3>Deep dive 1: Exactly-once vs at-least-once + fault tolerance (the crux)</h3>
+<p>This is the heart of the problem and the thing the interviewer most wants to probe.</p>
+<ul>
+<li><strong>True exactly-once delivery is impossible</strong> across machine failures. The unavoidable scenario: a worker completes the job's effect, then crashes before its ack is durably recorded. The scheduler cannot distinguish "completed-but-unacked" from "never-started." It must choose: re-dispatch (risk a <strong>duplicate</strong>) or not (risk a <strong>miss</strong>). Schedulers almost always choose <strong>at-least-once</strong> (re-dispatch) because a silent miss is worse than a handled duplicate.</li>
+<li><strong>The pragmatic contract: at-least-once delivery + idempotent execution = exactly-once <em>effect</em>.</strong> Each run carries a <strong>deterministic idempotency key</strong> (<code>job_id + scheduled_fire_time</code>). Before executing, the worker checks the <strong>dedup store</strong>; if the key is present, the effect already happened and it skips. This makes a re-dispatch a safe no-op. The handler (user code) must be idempotent, or use the dedup store as a guard — I'd make idempotency keys a first-class part of the API so this is the default, not an afterthought.</li>
+<li><strong>Leases prevent concurrent double-execution.</strong> When a coordinator claims a due job it writes a <strong>lease</strong> (owner + expiry) atomically in the consensus store. Only the lease holder may run it. If the worker dies, the lease <strong>expires</strong> (no heartbeat) and the job is re-dispatched — combined with the dedup key, this gives "runs again if and only if it didn't already complete."</li>
+<li><strong>Long jobs heartbeat.</strong> A job running for minutes renews its lease via heartbeat; if heartbeats stop, the coordinator assumes the worker died and re-dispatches. This avoids both premature re-dispatch (lease too short) and stuck jobs (worker died holding a lease forever).</li>
+<li><strong>Fault tolerance via stateless coordinators over durable state.</strong> Coordinators hold <em>no</em> authoritative state — everything (next_run, lease) lives in the replicated store. So a dead coordinator's shards are simply <strong>reassigned</strong> to a new leader that resumes from the durable index; no schedule is lost. The consensus group survives node and zone loss (quorum). This separation — durable state in consensus, ephemeral compute in coordinators/workers — is what makes the whole thing fault-tolerant.</li>
+<li><strong>Missed-window backfill:</strong> if the whole shard was down through a scheduled time, on recovery the coordinator sees <code>next_run &lt; now</code> and applies the configured policy: <strong>skip</strong> (fire once for the latest), <strong>catch-up</strong> (fire each missed occurrence), or <strong>fire-once-now</strong>. Making this an explicit per-job policy is a Staff-level detail interviewers love.</li>
+</ul>
+<h3>Deep dive 2: Cron-at-scale — timing wheel + sharded dispatch + backpressure</h3>
+<p>Scheduling millions of timers efficiently, and surviving the burst when many fire at once, is the second crux.</p>
+<ul>
+<li><strong>Don't scan 50M jobs every tick.</strong> Maintain a <strong>time-indexed <code>next_run</code></strong> structure so the due-scan is a range query: "give me jobs due in [now, now+Δ)." Per shard (~195k jobs), the imminent window is tiny. A <strong>hierarchical timing wheel</strong> is the classic structure — O(1) insertion and tick advancement, bucketing timers by expiry — far better than a per-job thread or a global sorted scan.</li>
+<li><strong>Sharding makes it tractable.</strong> 250k dispatches/sec is impossible for one node but ~1k/sec per shard across 256 shards. Each shard's leader independently runs its timing wheel and dispatches its own jobs — horizontal scale with no global coordinator. Shard by <code>job_id</code> hash for even distribution; rebalance shards across coordinators as the fleet grows.</li>
+<li><strong>Backpressure absorbs the burst.</strong> The pathological case is "everyone scheduled midnight." The coordinator enqueues due jobs into a <strong>durable queue</strong>; workers drain at their sustainable rate. The queue is the shock absorber — we <strong>delay</strong> low-priority work under load, never <strong>drop</strong> it. Per-tenant fairness and priority lanes ensure a flood of one tenant's jobs doesn't starve others or block high-priority work.</li>
+<li><strong>Avoid the thundering herd on the store.</strong> Coordinators claim due jobs in <strong>batches</strong> (range read + batched lease writes) rather than one round-trip per job, so a burst is a handful of large operations, not 250k small ones.</li>
+<li><strong>Clock correctness:</strong> dispatch decisions key off the scheduled time recorded in the store (and idempotency key), not each worker's wall clock, so clock skew can't cause double or missed semantics — skew only affects <em>precision</em>, which the SLO already tolerates (~1-5 s).</li>
+</ul>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Option A</th>
+<th>Option B</th>
+<th>Choice &amp; why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Delivery semantics</td>
+<td>Exactly-once delivery</td>
+<td><strong>At-least-once + idempotent effect</strong></td>
+<td><strong>At-least-once.</strong> True exactly-once delivery is impossible across failures; dedup keys make the <em>effect</em> exactly-once. Prefer a handled duplicate over a silent miss.</td>
+</tr>
+<tr>
+<td>Coordination</td>
+<td>Single global scheduler</td>
+<td><strong>Sharded jobs + per-shard leader election</strong></td>
+<td><strong>Sharded + leaders.</strong> One scheduler can't do 250k/sec and is a SPOF; sharding gives scale + isolation, leaders prevent double-dispatch.</td>
+</tr>
+<tr>
+<td>Job-state store</td>
+<td>Eventual KV</td>
+<td><strong>Consensus / quorum (R+W&gt;N)</strong></td>
+<td><strong>Consensus.</strong> Leases and next_run are contended and must be unambiguous; eventual consistency would double-fire or miss. Cost: consensus latency on the small core.</td>
+</tr>
+<tr>
+<td>Burst handling</td>
+<td>Dispatch directly to workers</td>
+<td><strong>Durable queue + backpressure</strong></td>
+<td><strong>Queue.</strong> Absorbs fire-time bursts, smooths to worker drain rate, never drops jobs; delay low-priority instead.</td>
+</tr>
+<tr>
+<td>Coordinator state</td>
+<td>Stateful coordinators</td>
+<td><strong>Stateless coordinators over durable state</strong></td>
+<td><strong>Stateless.</strong> Dead coordinator → reassign shard, resume from durable index; no schedule lost.</td>
+</tr>
+<tr>
+<td>Missed window</td>
+<td>Always skip</td>
+<td><strong>Configurable: skip / catch-up / fire-once</strong></td>
+<td><strong>Configurable per job.</strong> Different jobs need different semantics; making it explicit is correct + Staff-level.</td>
+</tr>
+<tr>
+<td>Long jobs</td>
+<td>Fixed timeout</td>
+<td><strong>Lease + heartbeat renewal</strong></td>
+<td><strong>Heartbeat.</strong> Distinguishes a slow-but-alive job from a dead worker, avoiding premature re-dispatch or stuck leases.</td>
+</tr>
+<tr>
+<td>Scheduler role</td>
+<td>Owns + runs workers</td>
+<td><strong>Trigger external (queue/http) by default</strong></td>
+<td><strong>Trigger (with optional pool).</strong> Decouples scheduling from execution; reuses existing compute; cleaner contract.</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Fire-time burst / thundering herd (everyone scheduled midnight).</strong> A spike to 250k/sec. <em>Mitigation:</em> durable queue + backpressure (delay low-priority, never drop), batched due-claim against the store, per-tenant fairness, and optional schedule jitter on creation to spread synchronized crons.</li>
+<li><strong>Hot shard / skewed jobs.</strong> One tenant or one time bucket overloads a shard. <em>Mitigation:</em> hash-shard by job_id for even spread, per-tenant quotas, and dynamic shard rebalancing; split a hot shard's range.</li>
+<li><strong>Coordinator crash mid-dispatch.</strong> Could lose in-flight dispatch decisions. <em>Mitigation:</em> dispatch decisions are durably leased in the consensus store <em>before</em> enqueue, so a new leader re-derives state from the store; nothing authoritative lived in the dead coordinator.</li>
+<li><strong>Worker crash mid-run (the exactly-once problem).</strong> Done-but-unacked vs never-ran. <em>Mitigation:</em> lease expiry → re-dispatch + dedup key → effect happens once. At-least-once + idempotency, by design.</li>
+<li><strong>Coordination-service / consensus outage (SPOF risk).</strong> Leader election and shard assignment depend on it. <em>Mitigation:</em> run it as a replicated consensus quorum across zones (survives minority loss); coordinators keep dispatching their currently-owned shards from the durable store even during a brief membership blip — degrade, don't stop.</li>
+<li><strong>Duplicate amplification.</strong> Aggressive retries could storm a flaky target. <em>Mitigation:</em> exponential backoff + jitter, max attempts → dead-letter, and circuit-breaking per target so a failing endpoint doesn't get hammered.</li>
+<li><strong>Run-history store overload.</strong> 14k+ records/sec. <em>Mitigation:</em> async write off the hot path, TTL old runs, sample/aggregate; history loss degrades observability, never scheduling.</li>
+<li><strong>Clock skew across nodes.</strong> Could shift fire times. <em>Mitigation:</em> decisions key off the stored scheduled time + idempotency key, not local wall clocks; skew only affects precision (within SLO), not correctness.</li>
+<li><strong>Cascading failure from a slow downstream.</strong> A slow target backs up workers → queue grows → other jobs delayed. <em>Mitigation:</em> per-target concurrency limits / bulkheads, timeouts, and priority isolation so one slow target can't starve the whole fleet.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>What breaks first: dispatch throughput + the consensus store's write rate</strong> under bursts (500M jobs, ~2.5M dispatches/sec peak). <em>Evolve:</em> increase shard count (256 → thousands); each shard stays ~1k/sec. The consensus store is the contended core — partition it further (per-shard consensus groups) so no single group sees global write load.</li>
+<li><strong>Timing-wheel memory at 10x.</strong> 500M timers across coordinators. <em>Evolve:</em> keep only the imminent window's timers in the in-memory wheel and the rest in the time-indexed store; page the next window in as time advances — bounded memory regardless of total job count.</li>
+<li><strong>Burst severity grows.</strong> 10x synchronized crons at midnight. <em>Evolve:</em> push harder on jitter/spreading at schedule time, deeper queue buffering, and autoscaling workers ahead of known peaks; the queue + backpressure model already absorbs this — it just needs more buffer and workers.</li>
+<li><strong>Multi-region / global scheduling.</strong> <em>Evolve:</em> shard jobs by region (a job is owned by one region's coordinators) to keep consensus local and low-latency; a global control plane for CRUD/visibility, regional dispatch. Avoid cross-region consensus on the hot path.</li>
+<li><strong>From scheduler to orchestrator.</strong> Users will want job <em>dependencies</em> (run B after A). <em>Evolve:</em> layer a DAG/workflow engine on top that uses this scheduler as the timer/dispatch substrate — keep the core a scheduler, add orchestration as a separate layer (clean separation of concerns).</li>
+<li><strong>Observability at 10x.</strong> Run history explodes. <em>Evolve:</em> sample + pre-aggregate, tiered storage, and surface SLO dashboards (missed-rate, dispatch-latency p99, duplicate-rate) — the metrics that prove the scheduler is healthy. This is the platform-governance angle.</li>
+<li><strong>Exactly-once pressure.</strong> More handlers that can't be idempotent. <em>Evolve:</em> offer a built-in transactional dedup/outbox helper so even non-idempotent targets get effective exactly-once via the platform, lowering the correctness burden on every team.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"Can you guarantee exactly-once execution?"</strong> Not exactly-once <em>delivery</em> — that's impossible across failures (a worker can finish then die before acking). I guarantee exactly-once <em>effect</em> via at-least-once delivery + a deterministic idempotency key (<code>job_id + fire_time</code>) checked against a dedup store, with idempotent handlers. A handled duplicate beats a silent miss.</li>
+<li><strong>"Why not one central scheduler?"</strong> It can't sustain 250k dispatches/sec and is a SPOF. I shard jobs across ~256 shards (~1k/sec each) with <strong>per-shard leader election</strong> so exactly one coordinator dispatches each shard — scale and no double-fire.</li>
+<li><strong>"How does leader election work and what does it buy?"</strong> A consensus-backed coordination service (Raft/Paxos-style) elects a leader per shard and assigns shards. Only the leader dispatches its shard, preventing two coordinators from firing the same job; on leader death, a new one is elected and resumes from durable state.</li>
+<li><strong>"A coordinator dies mid-dispatch — what's lost?"</strong> Nothing authoritative. Leases and next_run live in the replicated store <em>before</em> enqueue; the new leader re-derives state and continues. Coordinators are stateless over durable state.</li>
+<li><strong>"A worker dies mid-run — duplicate or miss?"</strong> Lease expires (no heartbeat) → re-dispatch, so no miss. The dedup key ensures that if the dead worker already completed the effect, the retry is a no-op — so no harmful duplicate either.</li>
+<li><strong>"How do you schedule millions of timers efficiently?"</strong> Time-indexed next_run + a hierarchical <strong>timing wheel</strong> per shard (O(1) insert/tick), scanning only the imminent window — never a full scan of all jobs. Sharding keeps per-node load tiny.</li>
+<li><strong>"Everyone scheduled a job for midnight — what happens?"</strong> Backpressure: coordinators enqueue due jobs into a durable queue; workers drain at their rate; low-priority work is delayed, never dropped. Plus optional jitter at schedule time to spread synchronized crons.</li>
+<li><strong>"The system was down through a scheduled time — then what?"</strong> Per-job missed-window policy: skip, catch-up (fire each missed occurrence), or fire-once-now. Explicit and configurable.</li>
+<li><strong>"How do you keep retries from hammering a flaky target?"</strong> Exponential backoff + jitter, max attempts → dead-letter, and per-target circuit breaking / concurrency limits (bulkheads) so one bad endpoint can't starve the fleet.</li>
+<li><strong>"What needs strong consistency and what can be eventual?"</strong> Strong (consensus): job state, leases, leader assignment — the contended correctness core. Eventual/async: run history, metrics. Delivery is at-least-once with idempotent effect.</li>
+<li><strong>"How do you ensure fairness across tenants?"</strong> Per-tenant quotas + fair-scheduling in the dispatch queue + priority lanes, so a noisy tenant can't monopolize workers or delay others' high-priority jobs.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Phase</th>
+<th>What to cover</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0-5 min</td>
+<td>Clarify</td>
+<td>Job types (cron/once/event), precision SLO, scale + burstiness, <strong>at-least-once vs exactly-once</strong> (the key question), run-vs-trigger, long jobs, missed-window policy.</td>
+</tr>
+<tr>
+<td>5-8 min</td>
+<td>FR / NFR</td>
+<td>Schedule + reliable dispatch, exactly-once effect, fault tolerance/reassignment, leader election + sharding, retries, backpressure, priority, observability. NFR: 99.99%, strong job-state consistency, at-least-once.</td>
+</tr>
+<tr>
+<td>8-13 min</td>
+<td>Estimation</td>
+<td>Single node can't do 250k/sec bursty → shard 256 ways → ~1k/sec each. ~150 GB job state; durable queue absorbs burst; run history the high-volume TTL'd stream.</td>
+</tr>
+<tr>
+<td>13-18 min</td>
+<td>API + model</td>
+<td>Idempotency key per run, heartbeat for long jobs, ack to close the loop. Stores: consensus job state / durable queue / dedup KV / TSDB history.</td>
+</tr>
+<tr>
+<td>18-32 min</td>
+<td>Architecture (centerpiece)</td>
+<td>Walk both diagrams: schedule → consensus job store; per-shard leader runs timing wheel → claims lease → durable queue (backpressure/priority) → stateless workers (dedup, heartbeat, ack); failure detector reassigns. Explicitly walk the done-but-unacked case.</td>
+</tr>
+<tr>
+<td>32-45 min</td>
+<td>Deep dive</td>
+<td>(1) Exactly-once <em>effect</em> via at-least-once + dedup keys + leases + heartbeats; stateless coordinators over durable state; missed-window backfill. (2) Timing wheel + sharded dispatch + backpressure for cron-at-scale.</td>
+</tr>
+<tr>
+<td>45-52 min</td>
+<td>Tradeoffs + failures</td>
+<td>At-least-once vs exactly-once, sharded leaders vs central, consensus vs eventual, queue backpressure. Fire-time burst, coordinator/worker crash, consensus outage, retry storms, clock skew.</td>
+</tr>
+<tr>
+<td>52-58 min</td>
+<td>Scale 10x</td>
+<td>Dispatch throughput + consensus write rate break first → more shards + per-shard consensus; paged timing wheel; regional sharding; layer a DAG orchestrator on top.</td>
+</tr>
+<tr>
+<td>58-60 min</td>
+<td>Wrap</td>
+<td>Restate: sharded replicated job store with per-shard leaders dispatching to stateless workers, at-least-once + idempotent effect, durable-queue backpressure — distributed-systems fundamentals end-to-end, tied to your event-driven background-processing work.</td>
+</tr>
+</tbody>
+</table></article></div></body></html>

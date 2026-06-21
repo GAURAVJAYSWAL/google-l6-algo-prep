@@ -1,0 +1,392 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>B09 — Design a video / media transcoding pipeline</title><style>
+:root{--ink:#1e2430;--muted:#5b6573;--line:#e6e9f0;--primary:#4f46e5;--bg:#f6f7fb;--code:#0f172a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.topbar{position:sticky;top:0;z-index:10;background:#11162a;color:#fff;padding:11px 22px;display:flex;gap:14px;align-items:center}
+.topbar a{color:#c7cde0;text-decoration:none;font-size:14px}.topbar a:hover{color:#fff}
+.topbar .brand{font-weight:700;color:#fff}
+.wrap{max-width:920px;margin:26px auto;padding:0 22px 100px}
+.doc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:34px 44px;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.doc h1{font-size:27px;line-height:1.25;margin:0 0 14px;padding-bottom:14px;border-bottom:3px solid var(--primary)}
+.doc h2{font-size:20px;margin:30px 0 10px;color:#11162a;border-left:4px solid var(--primary);padding-left:10px}
+.doc h3{font-size:16.5px;margin:20px 0 8px}
+.doc p,.doc li{font-size:15px}
+.doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+.doc th,.doc td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+.doc th{background:#f1f3f9;font-weight:700}
+.doc pre{background:var(--code);color:#e2e8f0;border-radius:9px;padding:15px 17px;overflow-x:auto;font-size:12.7px;line-height:1.45;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace}
+.doc :not(pre)>code{background:#eef0f7;padding:1.5px 5px;border-radius:5px;font-size:13px}
+.doc blockquote{border-left:4px solid #c7cde0;margin:12px 0;padding:4px 14px;color:var(--muted)}
+.mermaid{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0;text-align:center;overflow-x:auto}
+.backlink{display:inline-block;margin:0 0 14px;color:var(--primary);text-decoration:none;font-size:14px}
+.idx-group{margin:24px 0}
+.idx-group h2{border-left:4px solid var(--primary);padding-left:10px}
+.idx-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.idx-list a{display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 15px;text-decoration:none;color:var(--ink)}
+.idx-list a:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.08)}
+.idx-list .id{font-weight:700;color:var(--primary)}
+</style><script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true}});</script></head><body><header class="topbar"><span class="brand">System Design - Google L6</span><a href="index.html">All questions</a><a href="https://github.com/GAURAVJAYSWAL/google-l6-algo-prep">Repo</a></header><div class="wrap"><a class="backlink" href="index.html">&larr; All system-design questions</a><article class="doc"><h1>B09 — Design a video / media transcoding pipeline</h1>
+<p>This tests whether you can own a <strong>distributed, asynchronous, compute-heavy pipeline</strong> end to end: ingest large media, fan it into a queue, run a horizontally-scaled worker pool that shells out to FFmpeg across multiple encoding ladders, and guarantee every job finishes <strong>exactly-once-effectively</strong> despite worker crashes, retries, and bursty load — with progress tracking and safe rolling deploys. Google asks it because it exercises queueing, idempotency, autoscaling, backpressure, and operational maturity (health checks, rolling deploys) all at once — the operational-excellence signal that separates Staff from L5.</p>
+<h2>Lead with this — your résumé hook</h2>
+<p>"I built and owned exactly this — <strong>Mango-Transcoder</strong>, a distributed FFmpeg-based media transcoding pipeline running on <strong>ECS Fargate</strong>. I owned the whole thing: the <strong>job queue</strong>, an <strong>autoscaling worker pool</strong> that shells out to FFmpeg across multiple output renditions, <strong>retries with idempotency</strong> so a crashed worker never produces duplicate or corrupt output, <strong>progress tracking</strong>, and <strong>rolling deploys with health checks</strong> so I could ship the worker image without dropping in-flight jobs. So I'll design this from production scars, not theory, and point out exactly where the sharp edges were — idempotency on retry and draining workers during deploys."</p>
+<p>That establishes first-hand ownership of a <em>distributed pipeline</em> — the exact Staff signal this question probes.</p>
+<h2>1) Clarify — questions to ask the interviewer</h2>
+<ul>
+<li><strong>Input scope:</strong> User-uploaded video only, or also audio/images? Source formats and max size/duration (a 4-hour 4K master is a very different job from a 30-second clip)?</li>
+<li><strong>Output ladder:</strong> What renditions/codecs — an <strong>adaptive bitrate (ABR) ladder</strong> (e.g. 240p/480p/720p/1080p/4K in H.264 + maybe AV1) packaged as HLS/DASH? Thumbnails, captions, audio normalization? This defines the per-job fan-out.</li>
+<li><strong>Latency / SLA:</strong> Is this <strong>VOD</strong> (upload now, watch later — minutes-to-hours is fine) or <strong>near-real-time</strong> (live/clip, seconds)? I'll assume VOD with a target like "720p ready in &lt; N minutes, full ladder shortly after." Hugely changes the architecture.</li>
+<li><strong>Scale:</strong> Uploads/day, average + peak (do creators all upload at 6pm?), average duration. I'll assume <strong>~10^5–10^6 uploads/day</strong>, bursty.</li>
+<li><strong>Prioritization:</strong> Are some jobs more urgent (a paying creator, a "premiere" scheduled in 10 min) than others? Do we need <strong>multiple priority classes</strong> and fairness across tenants?</li>
+<li><strong>Cost sensitivity:</strong> Transcoding is CPU/GPU-heavy and expensive. Is cost a first-class constraint (spot/preemptible instances, GPU vs CPU encode)? Usually yes.</li>
+<li><strong>Correctness bar:</strong> Is a duplicate or partial output catastrophic (it is — a half-encoded video that plays then cuts out). Confirm we need <strong>idempotent, exactly-once-effective</strong> completion.</li>
+<li><strong>Durability:</strong> Where do source masters and outputs live, retention, multi-region for playback?</li>
+<li><strong>Progress:</strong> Do end-users see a live progress bar / status, or just "ready"? Drives whether we need fine-grained progress events.</li>
+</ul>
+<p><strong>What the interviewer is signaling:</strong> they want <strong>queue + worker-pool + autoscaling</strong> as the backbone, and they're really probing <strong>idempotency + retries</strong> (what happens when a worker dies at 90%?), <strong>backpressure</strong> (the 6pm upload spike), and <strong>operational maturity</strong> (rolling deploys without dropping jobs, health checks, draining). Asking "VOD vs near-real-time" and "is a partial output catastrophic" early signals you know the failure surface. The deep dive will be the <strong>transcode stages + idempotent retry</strong> and <strong>autoscaling/backpressure</strong>.</p>
+<h2>2) Functional Requirements (FR)</h2>
+<p><strong>In-scope</strong></p>
+<ul>
+<li>Accept a media upload (large files, resumable/multipart) and persist the <strong>source master</strong>.</li>
+<li>Enqueue a <strong>transcode job</strong> describing the target ladder/profile.</li>
+<li>A <strong>worker pool</strong> pulls jobs, runs FFmpeg through staged transcode (probe -&gt; segment -&gt; encode renditions -&gt; package -&gt; thumbnail), writes outputs to storage.</li>
+<li><strong>Retries with idempotency</strong> — a failed/abandoned job is retried without producing duplicate or partial outputs.</li>
+<li><strong>Prioritization</strong> — multiple priority classes; urgent jobs jump the line; fairness across tenants.</li>
+<li><strong>Progress tracking</strong> — per-job status (queued / running / % complete / done / failed) queryable and event-driven.</li>
+<li><strong>Autoscaling</strong> the worker pool to load; <strong>rolling deploys</strong> of the worker image with <strong>health checks</strong> and <strong>draining</strong> so in-flight jobs aren't killed.</li>
+<li>Publish a <strong>completion event</strong> (and a manifest: HLS/DASH playlist + rendition URLs).</li>
+</ul>
+<p><strong>Out-of-scope (defer)</strong></p>
+<ul>
+<li>The video <strong>player / CDN delivery</strong> detail (mention packaging + CDN, don't design the player).</li>
+<li>DRM/encryption specifics, watermarking, content moderation/ML classification (adjacent).</li>
+<li>Live streaming with sub-second latency (different beast — call out the difference).</li>
+<li>Recommendation/search over the catalog.</li>
+</ul>
+<h2>3) Non-Functional Requirements (NFR)</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Target &amp; rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Throughput</td>
+<td>~10^5–10^6 jobs/day, <strong>bursty</strong> (evening peaks 5–10× average); pipeline must absorb spikes via queue, not drop.</td>
+</tr>
+<tr>
+<td>Latency (VOD)</td>
+<td>First playable rendition (e.g. 720p) in <strong>minutes</strong>; full ABR ladder shortly after. Encoding is inherently ~real-time-ish per minute of video per core, so we parallelize by <strong>segment</strong>.</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td><strong>99.9%+</strong> for ingest + status APIs; the pipeline itself is async, so a worker outage delays (doesn't fail) jobs — graceful degradation.</td>
+</tr>
+<tr>
+<td>Consistency</td>
+<td><strong>Exactly-once-effective completion</strong> — at-least-once delivery from the queue + <strong>idempotent writes</strong> keyed by job/segment id. Job state strongly consistent.</td>
+</tr>
+<tr>
+<td>Durability</td>
+<td><strong>11 nines</strong> for source masters and outputs (object storage, erasure-coded). Never lose the master — everything else is recomputable from it.</td>
+</tr>
+<tr>
+<td>Cost</td>
+<td>First-class: use <strong>spot/preemptible</strong> workers + autoscale-to-zero on idle classes; GPU for heavy codecs where cheaper-per-frame.</td>
+</tr>
+<tr>
+<td>Operability</td>
+<td><strong>Zero-job-loss rolling deploys</strong>, health checks, drain on shutdown, full per-job observability + retry visibility.</td>
+</tr>
+</tbody>
+</table>
+<h2>4) Back-of-envelope estimation</h2>
+<pre><code>Uploads:        5e5 /day  avg  -&gt; ~6 /s avg ; peak 10x -&gt; ~60 /s
+Avg duration:   10 min video
+Avg source:     10 min * ~10 Mbps = ~750 MB master
+Storage (masters):  5e5/day * 750 MB = ~375 TB/day ingest
+   keep 1 yr -&gt; ~137 PB masters  (object store, erasure-coded)
+
+Outputs (ABR ladder ~5 renditions, total ~1.5x master after compression mix):
+   ~1.1 GB outputs/job -&gt; 5e5 * 1.1 GB = ~550 TB/day outputs
+
+Compute: encoding ~ real-time per rendition per core for H.264 (1x),
+   5 renditions * 10 min = ~50 core-min/job IF serial.
+   Parallelize by SEGMENTING the video (e.g. 6s segments =&gt; 100 segments)
+   and encoding segments concurrently -&gt; wall-clock minutes, not ~50 min.
+
+   Daily encode work = 5e5 jobs * 50 core-min = 2.5e7 core-min/day
+                     = ~4.2e5 core-hours/day = ~17,000 cores running 24/7 avg
+   Peak 10x burst -&gt; need autoscale headroom to ~tens of thousands of cores,
+   then scale back down (cost!). Use spot + scale-to-near-zero off-peak.
+
+Queue depth at peak: if arrivals 60/s and we can start 60/s, depth stays bounded;
+   if encode capacity lags, queue buffers the spike (that's its job) -&gt;
+   size queue retention for hours of backlog.
+
+Progress events: ~100 segments/job, a few events each -&gt; ~1e8 progress events/day
+   -&gt; lightweight, write to a fast KV / stream, not the primary DB hot path.
+</code></pre>
+<p>The decisive insight: <strong>encoding is embarrassingly parallel <em>if you segment the video first</em></strong> — so the architecture parallelizes one job across many workers by chunk, turning ~50 core-minutes of work into a few minutes of wall-clock. And capacity is <strong>bursty and expensive</strong>, so autoscaling + spot + scale-down dominate the cost story.</p>
+<h2>5) API design</h2>
+<pre><code># Ingest
+POST /uploads                 -&gt; {uploadId, multipartUrls[]}     # resumable, presigned
+POST /uploads/{id}/complete   {parts[]} -&gt; {mediaId}             # finalizes master in object store
+
+# Submit a transcode job
+POST /jobs                    {mediaId, profile|ladderId, priority, Idempotency-Key}
+                              -&gt; {jobId, status:QUEUED}
+
+# Status / progress
+GET  /jobs/{id}               -&gt; {status, percent, renditions[], error?, attempts}
+GET  /jobs/{id}/events        -&gt; SSE/WebSocket stream of progress updates
+GET  /media/{id}/manifest     -&gt; HLS/DASH master playlist (when DONE)
+
+# Internal worker protocol (queue-driven, not REST-first)
+LEASE  queue.poll(workerId, leaseSec)   -&gt; {jobId|segmentTask, attempt}
+RENEW  queue.heartbeat(taskId)          -&gt; extend lease (long encodes)
+ACK    queue.complete(taskId, outputManifest)   # idempotent
+NACK   queue.fail(taskId, reason)               -&gt; retry or dead-letter
+
+# Ops
+GET  /healthz   -&gt; readiness (worker drains: stop leasing, finish current, then exit)
+</code></pre>
+<p><code>Idempotency-Key</code> on submit makes a retried "transcode this media" a no-op. The <strong>lease + heartbeat</strong> protocol (not fire-and-forget) is what makes crashed workers safe — an unrenewed lease expires and the task is redelivered.</p>
+<h2>6) Architecture — request &amp; data flow</h2>
+<p>THE centerpiece. ASCII layered flow first, then a tailored Mermaid flowchart.</p>
+<h3>(a) ASCII layered block diagram</h3>
+<pre><code>                    Clients (creator upload / API)            Viewers (playback)
+                              |                                       |
+                              v                                       v
+                    [ CDN / Edge ]  &lt;— resumable upload accel       [ CDN ]  &lt;- serves HLS/DASH segments
+                              |                                       ^
+                              v                                       |
+                    [ Global LB / GeoDNS ]                            |
+                              |                                       |
+                              v                                       |
+                    [ API Gateway ]  authN/Z, rate-limit             |
+                    /            \                                    |
+                   v              v                                   |
+        [ Ingest Service ]   [ Job/Status Service ]                  |
+          presigned multipart   create job, query progress           |
+                |                    |                               |
+   put master   v                    v  write job row                |
+        [ Object Storage ]     [ Job Metadata DB ]                   |
+         (masters, 11 nines)     (state machine, strongly consistent)|
+                |                    |                               |
+                |   submit job -&gt;    v                               |
+                |              [ Priority Job Queue ]  (multi-class, durable, visibility-timeout/lease)
+                |                    |   pulls (lease + heartbeat)    |
+                |                    v                               |
+                |        +-----------------------------+            |
+                |        |   Worker Pool (autoscaled)  |  ECS Fargate-style, stateless, spot-friendly
+                |        |   each worker:              |            |
+                |        |   1. PROBE (ffprobe)        |            |
+                |        |   2. SPLIT into segments    |  --fan-out segment tasks back to queue--&gt;
+                |        |   3. ENCODE rendition(s)    |     (per-segment parallelism)            |
+                |        |      (FFmpeg, per ladder)   |            |
+                |        |   4. PACKAGE (HLS/DASH)     |            |
+                |        |   5. THUMBS / captions      |            |
+                |        +--------------+--------------+            |
+                |                       | write outputs (idempotent, keyed by job+segment)
+                |                       v                           |
+                +--------------&gt; [ Object Storage: outputs ] -------+ (renditions, manifests)
+                                        |
+                  progress events -&gt;    v
+                            [ Progress Stream / KV ]  --&gt; Job/Status Service --&gt; client SSE
+                                        |
+                  on all segments done: v
+                            [ Completion / Stitch step ] -&gt; assemble manifest -&gt; emit DONE event (Kafka)
+                                        |
+                            failed task -&gt; retry (backoff) -&gt; N tries -&gt; [ Dead-Letter Queue ] + alert
+</code></pre>
+<p><strong>Write/submit path.</strong> Creator gets <strong>presigned multipart URLs</strong> from Ingest Service and uploads the <strong>master</strong> straight to <strong>Object Storage</strong> (bytes never transit our services). On <code>complete</code>, Ingest finalizes the master; the client (or Ingest) calls Job Service which writes a <strong>job row</strong> (state <code>QUEUED</code>) to the <strong>Job Metadata DB</strong> and enqueues onto the <strong>Priority Job Queue</strong> (with <code>Idempotency-Key</code> so retries don't double-submit).</p>
+<p><strong>Processing path.</strong> A <strong>worker</strong> leases a job (visibility-timeout/lease + heartbeat). It <strong>probes</strong> (ffprobe -&gt; duration, codecs), <strong>splits</strong> the source into fixed-duration <strong>segments</strong>, and <strong>fans those segment-encode tasks back onto the queue</strong> so the whole pool encodes one job's chunks in parallel. Each segment task runs <strong>FFmpeg</strong> for its rendition(s), then writes its output to Object Storage <strong>idempotently</strong> — keyed by <code>(jobId, segmentIdx, rendition)</code>, so a redelivered task just overwrites the same deterministic object (no duplicates). Progress events stream to the <strong>Progress Stream/KV</strong>. When all segments for all renditions are done, a <strong>completion/stitch step</strong> assembles the <strong>HLS/DASH manifest</strong>, flips the job to <code>DONE</code>, and emits a completion event. Viewers later pull segments from the <strong>CDN</strong>.</p>
+<p><strong>Failure path.</strong> If a worker dies mid-encode, its <strong>lease expires</strong> and the queue <strong>redelivers</strong> the task to another worker — safe because writes are idempotent. Repeated failures hit a <strong>retry budget</strong> with exponential backoff, then land in a <strong>dead-letter queue</strong> with an alert (poison input, e.g. corrupt master). The master is never deleted, so any job is fully recomputable.</p>
+<h3>(b) Mermaid flowchart</h3>
+<div class="mermaid">
+flowchart TD
+  creator[Creator upload] --> edge[CDN / Edge - upload accel]
+  edge --> lb[Global LB / GeoDNS] --> gw[API Gateway authN/Z]
+  gw --> ingest[Ingest Service - presigned multipart]
+  gw --> jobsvc[Job / Status Service]
+
+  ingest --> master[(Object Storage - masters, 11 nines)]
+  jobsvc --> jdb[(Job Metadata DB - state machine)]
+  jobsvc --> q[[Priority Job Queue - lease + heartbeat]]
+
+  q -->|lease| pool[Worker Pool - autoscaled, spot]
+  pool -->|1 probe| pool
+  pool -->|2 split into segments| q
+  pool -->|3 FFmpeg encode renditions| out[(Object Storage - outputs)]
+  pool -->|4 package HLS/DASH| out
+  pool -->|progress events| prog[(Progress Stream / KV)]
+  prog --> jobsvc
+  jobsvc -.->|SSE/WebSocket| creator
+
+  out --> stitch[Completion / Stitch - assemble manifest]
+  stitch -->|emit DONE| done[[Completion Events / Kafka]]
+  q -->|N failures| dlq[(Dead-Letter Queue + alert)]
+
+  out --> playcdn[CDN - HLS/DASH delivery]
+  playcdn --> viewer[Viewers playback]
+</div>
+<h2>7) Data model &amp; storage choices</h2>
+<p><strong>Job Metadata DB — a state machine in a strongly-consistent store</strong> (sharded SQL or a consistent KV). One row per job, plus child rows per segment task:</p>
+<pre><code>Job:     { jobId (PK), mediaId, profile/ladderId, priority, tenantId,
+           state(QUEUED|RUNNING|PARTIAL|DONE|FAILED), percent,
+           attempts, idempotencyKey, createdAt, updatedAt }
+SegTask: { jobId, segmentIdx, rendition, state, attempt, outputPtr, updatedAt }
+</code></pre>
+<p><em>First-principles:</em> job state needs <strong>strong consistency</strong> and <strong>conditional transitions</strong> (only <code>RUNNING -&gt; DONE</code> if all segments done; CAS on state to avoid two workers both "finishing"), so a transactional store beats eventual KV here. It's modest in size (one row per job), so a single sharded SQL/consistent-KV is fine — this is <em>coordination</em> data, not the bulk data.</p>
+<p><strong>Object Storage — erasure-coded blob store</strong> for the heavyweight bytes: <strong>masters</strong> (immutable, 11 nines — the source of truth everything is recomputable from) and <strong>outputs</strong> (renditions + manifests). Outputs are written at <strong>deterministic, idempotent keys</strong> <code>s3://.../{jobId}/{rendition}/{segIdx}.ts</code> so a retried task is an overwrite, not a duplicate. Geo-replicated for playback locality.</p>
+<p><strong>Priority Job Queue — durable, multi-class queue with visibility-timeout/lease semantics</strong> (Kafka with priority partitions, or SQS-class with separate queues per priority, or a purpose-built scheduler). <em>Why a queue and not direct dispatch:</em> it's the <strong>shock absorber</strong> for bursty load (the 6pm spike buffers here instead of dropping) and the substrate for <strong>at-least-once + lease-based redelivery</strong>, which is the backbone of crash-safety.</p>
+<p><strong>Progress Stream / KV — fast write-optimized store</strong> (Redis or a log/stream) for high-frequency <code>percent</code> updates, decoupled from the Job DB so progress chatter doesn't hammer the transactional store; the Status Service reads it and pushes SSE/WebSocket to clients.</p>
+<p><strong>Dead-Letter Queue</strong> — durable holding pen for poison jobs (corrupt input, repeatedly-failing encode), with alerting and a manual/automated reprocess path.</p>
+<h2>8) Deep dive</h2>
+<p>The crux is <strong>(A) transcode stages + idempotent retry</strong> (correctness under crashes) and <strong>(B) autoscaling + backpressure + prioritization</strong> (throughput and cost under bursty load), plus <strong>(C) rolling deploys without dropping jobs</strong> (operational maturity). Spend the most time on A and B.</p>
+<p><strong>A. Transcode stages + idempotent, exactly-once-effective retry.</strong></p>
+<ul>
+<li><strong>Stages per job:</strong> <code>PROBE (ffprobe)</code> -&gt; <code>SPLIT into ~6s segments</code> -&gt; <code>ENCODE each segment x each rendition (FFmpeg)</code> -&gt; <code>PACKAGE (HLS/DASH manifest)</code> -&gt; <code>THUMBS/captions/audio-normalize</code>. Splitting first is the key move: it <strong>parallelizes one job across the whole pool</strong> by chunk and makes each unit of work small (a few seconds of video), so a crash loses seconds of redo, not the whole encode.</li>
+<li><strong>Why segment-level idempotency:</strong> the queue is <strong>at-least-once</strong> (lease expiry redelivers). To get <strong>exactly-once <em>effect</em></strong>, each segment task writes its output to a <strong>deterministic key</strong> derived from <code>(jobId, segmentIdx, rendition)</code>. Re-running it produces the <strong>same bytes at the same key</strong> — overwrite, not duplicate. Completion is decided by <em>"all expected output keys exist,"</em> not <em>"every task ran exactly once."</em> That's how you make at-least-once delivery yield exactly-once output.</li>
+<li><strong>Lease + heartbeat:</strong> long encodes renew their lease periodically. If a worker hangs or dies, the lease expires and the task is redelivered. A <strong>fencing token / attempt number</strong> prevents a zombie worker (that wakes up after its lease expired) from clobbering the work of the worker that took over — the stitch step accepts only outputs from the current attempt.</li>
+<li><strong>Atomic completion:</strong> the stitch step does a <strong>CAS</strong> on job state (<code>PARTIAL -&gt; DONE</code> only if every segment+rendition output exists); two workers can't both "finish" the job. The completion event is emitted <strong>after</strong> the manifest is durably written, so downstream never sees a DONE without a playable manifest.</li>
+<li><strong>Poison handling:</strong> bounded retries with exponential backoff + jitter; after N, route to <strong>dead-letter</strong> with diagnostics, alert a human, never silently drop. Because the master is retained, reprocessing is always possible.</li>
+</ul>
+<p><strong>B. Autoscaling, backpressure, prioritization (throughput + cost).</strong></p>
+<ul>
+<li><strong>Scale on queue depth + age, not CPU.</strong> The right signal is <strong>backlog</strong>: target a bounded queue depth / oldest-message-age. When backlog grows, add workers; when it drains, scale down toward zero for idle classes. (CPU-based autoscaling lags because encoding pegs CPU regardless of backlog.)</li>
+<li><strong>Backpressure:</strong> the queue <em>is</em> the backpressure mechanism — the 6pm spike accumulates as depth and is worked off as capacity ramps, instead of overwhelming downstream. Ingest stays available (just enqueues); we cap concurrent jobs per tenant to prevent one creator monopolizing the pool.</li>
+<li><strong>Prioritization + fairness:</strong> multiple priority classes (separate queues or weighted partitions). Workers drain high-priority first, but <strong>weighted fair queuing</strong> prevents starvation of low-priority and enforces <strong>per-tenant fairness</strong> so one tenant's 10,000-video bulk import doesn't block everyone. A "first-playable-rendition" fast lane can encode 720p ahead of the full ladder so users get <em>something</em> watchable fast.</li>
+<li><strong>Cost levers:</strong> <strong>spot/preemptible</strong> workers (the pipeline already tolerates worker loss, so spot reclamation is just another lease expiry — a perfect fit); <strong>GPU encode</strong> for heavy codecs (AV1) where cheaper-per-frame; <strong>scale-to-near-zero</strong> off-peak; right-size worker instance to the rendition.</li>
+</ul>
+<p><strong>C. Rolling deploys + health checks without dropping jobs (the operational signal).</strong></p>
+<ul>
+<li>Workers are <strong>stateless</strong> and <strong>drain gracefully</strong>: on <code>SIGTERM</code>/deploy, a worker <strong>stops leasing new tasks</strong>, finishes (or checkpoints) the current segment, ACKs it, then exits. <code>/healthz</code> reports <em>not-ready</em> during drain so the orchestrator stops routing.</li>
+<li>Because work is <strong>lease-based and segment-sized</strong>, a killed-too-soon worker just lets its lease expire and the task redelivers — <strong>zero job loss</strong> by construction. Rolling the worker image is safe: new workers pick up new leases; old ones drain.</li>
+<li><strong>Health checks</strong> distinguish <em>liveness</em> (process up) from <em>readiness</em> (willing to take work); a wedged FFmpeg fails liveness and gets replaced. Canary a new worker image on a small fraction of the pool before full rollout; watch failure-rate/encode-time regressions.</li>
+</ul>
+<h2>9) Key tradeoffs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Choice &amp; why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Sync vs async</td>
+<td><strong>Fully async pipeline</strong> — ingest returns immediately, transcoding happens behind a queue. Encoding is minutes-long; blocking a request on it is a non-starter.</td>
+</tr>
+<tr>
+<td>Delivery semantics</td>
+<td><strong>At-least-once queue + idempotent writes = exactly-once <em>effect</em>.</strong> Cheaper and more robust than trying to build exactly-once <em>delivery</em>.</td>
+</tr>
+<tr>
+<td>Unit of work</td>
+<td><strong>Segment-level</strong> parallelism over whole-file jobs — smaller blast radius on crash, parallelizes one job across the pool, faster wall-clock. Cost: a stitch/coordination step.</td>
+</tr>
+<tr>
+<td>Autoscale signal</td>
+<td><strong>Queue depth/age</strong> over CPU — tracks actual backlog, scales ahead of the spike.</td>
+</tr>
+<tr>
+<td>Worker instances</td>
+<td><strong>Spot/preemptible</strong> over on-demand — pipeline already tolerates worker loss; ~70% cheaper. Cost: must handle reclamation (already do, via leases).</td>
+</tr>
+<tr>
+<td>Queue tech</td>
+<td><strong>Durable priority queue</strong> (Kafka/SQS-class) over a DB-as-queue — purpose-built for visibility timeouts, redelivery, throughput; DB-as-queue contends with job state.</td>
+</tr>
+<tr>
+<td>Job state store</td>
+<td><strong>Strongly-consistent transactional store</strong> over eventual KV — completion/transition correctness needs CAS; data volume is small.</td>
+</tr>
+<tr>
+<td>Progress data</td>
+<td><strong>Separate fast stream/KV</strong> over the Job DB — high-frequency progress shouldn't hammer the transactional store.</td>
+</tr>
+<tr>
+<td>First-playable</td>
+<td><strong>Fast-lane 720p before full ladder</strong> — better UX; cost is slightly more orchestration.</td>
+</tr>
+</tbody>
+</table>
+<h2>10) Bottlenecks &amp; failure modes</h2>
+<ul>
+<li><strong>Worker crash mid-encode (the signature case):</strong> <em>Mitigation:</em> lease expiry + redelivery + idempotent segment writes -&gt; the task just re-runs; only seconds of work lost. Fencing tokens stop zombie workers from clobbering.</li>
+<li><strong>Bursty upload spike (6pm thundering herd):</strong> <em>Mitigation:</em> the queue absorbs it (backpressure); autoscale on depth; per-tenant concurrency caps; ingest stays available because it only enqueues.</li>
+<li><strong>Hot/huge job (a 4-hour 4K master):</strong> would hog one worker for hours. <em>Mitigation:</em> segment-split distributes it across many workers; cap per-segment size; first-playable fast lane.</li>
+<li><strong>Poison input (corrupt/unsupported media):</strong> infinite retry loop. <em>Mitigation:</em> bounded retries + exponential backoff -&gt; dead-letter + alert; validate at probe stage and fail fast with a clear error.</li>
+<li><strong>Stitch/coordination SPOF:</strong> the completion step decides DONE. <em>Mitigation:</em> make it stateless + idempotent (recomputes from "which output keys exist"), CAS the final transition, run multiple instances.</li>
+<li><strong>Queue/broker failure:</strong> pipeline stalls. <em>Mitigation:</em> replicated, durable queue (quorum); masters retained so nothing is lost; jobs resume from persisted state when broker recovers.</li>
+<li><strong>Object-store throttling under burst writes:</strong> many segments writing at once. <em>Mitigation:</em> key-prefix sharding to spread partitions, ret/backoff, batch small outputs.</li>
+<li><strong>Cost blowout from over-scaling:</strong> <em>Mitigation:</em> scale-down policy + scale-to-near-zero off-peak; spot; cap max pool size.</li>
+</ul>
+<h2>11) Scale 10x / evolution</h2>
+<ul>
+<li><strong>First thing that breaks: encode capacity + cost</strong> at 10× uploads. <em>Evolve:</em> push <strong>GPU/hardware encode</strong> for the heavy renditions, smarter codec choice (AV1/SVT for bitrate savings), and <strong>per-title encoding</strong> (analyze content complexity, don't over-spend bits on simple scenes) to cut both compute and storage.</li>
+<li><strong>Queue throughput / fan-out</strong> at 10× segment tasks. <em>Evolve:</em> partition queues per priority/tenant/region; shard the broker; consider a hierarchical scheduler.</li>
+<li><strong>Job DB write rate</strong> (more state transitions/progress). <em>Evolve:</em> keep progress entirely off the transactional store (already do); shard job state by <code>jobId</code>; archive completed jobs.</li>
+<li><strong>Multi-region:</strong> run pipelines per region near where content is uploaded/consumed; replicate masters async; viewers always hit nearest CDN edge.</li>
+<li><strong>Smarter scheduling:</strong> bin-pack jobs to instance types, predictive autoscaling off historical upload curves (pre-warm before the evening spike), spot-diversification across instance pools to dodge mass reclamation.</li>
+</ul>
+<h2>12) Interviewer probes &amp; follow-ups</h2>
+<ul>
+<li><strong>"A worker dies at 90% of a 1-hour encode — what happens?"</strong> Only the <em>current segment</em> is lost (work is segmented). Its lease expires, the segment task redelivers to another worker, which writes to the same deterministic key. The other 99 segments are already durably stored. Net: seconds of redo, exactly-once output.</li>
+<li><strong>"How do you guarantee no duplicate/partial output if the queue is at-least-once?"</strong> Idempotent writes at deterministic keys + completion decided by "all expected output keys exist" + CAS on the final state transition. At-least-once <em>delivery</em> becomes exactly-once <em>effect</em>.</li>
+<li><strong>"6pm everyone uploads at once — how don't you fall over?"</strong> The queue is the shock absorber (backpressure); ingest only enqueues so it stays up; autoscale on queue depth ramps workers; per-tenant caps keep it fair. The spike becomes latency, not failure.</li>
+<li><strong>"How do you deploy a new worker version without dropping in-flight jobs?"</strong> Stateless workers drain on SIGTERM (stop leasing, finish current segment, ACK, exit); <code>/healthz</code> goes not-ready; lease-based work means anything killed too early just redelivers. Canary first.</li>
+<li><strong>"How do you keep urgent jobs ahead without starving the rest?"</strong> Priority classes + <strong>weighted fair queuing</strong> + per-tenant fairness; a first-playable fast lane for the most-watched rendition.</li>
+<li><strong>"Why segment the video instead of encoding the whole file on one worker?"</strong> Parallelism (one job across the pool -&gt; minutes not ~50 min), smaller crash blast radius, and better load distribution for huge masters. Cost is a stitch step.</li>
+<li><strong>"Spot instances get reclaimed constantly — isn't that a problem?"</strong> No — reclamation is just another lease expiry, which the pipeline already handles. That's <em>why</em> spot is a great fit and a big cost win.</li>
+</ul>
+<h2>13) 60-minute flow cheat-sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–2 min</td>
+<td>Open with the <strong>résumé hook</strong> — "I built Mango-Transcoder, an FFmpeg pipeline on ECS Fargate; here's how I'd design it."</td>
+</tr>
+<tr>
+<td>2–8 min</td>
+<td><strong>Clarify:</strong> VOD vs near-real-time? output ladder? scale + burstiness? prioritization? is partial output catastrophic (yes -&gt; idempotency)? cost a constraint?</td>
+</tr>
+<tr>
+<td>8–12 min</td>
+<td><strong>FR + NFR + estimation:</strong> surface the two insights — encoding is parallel <em>if you segment first</em>, and load is bursty + expensive (autoscale + spot).</td>
+</tr>
+<tr>
+<td>12–18 min</td>
+<td><strong>API + high-level architecture:</strong> draw the ASCII flow — ingest (presigned), queue, autoscaled worker pool, object storage, completion event. Bytes bypass services.</td>
+</tr>
+<tr>
+<td>18–22 min</td>
+<td>Walk the <strong>submit path</strong> and <strong>processing path</strong> (probe -&gt; split -&gt; encode segments -&gt; package), and the <strong>failure path</strong> (lease expiry -&gt; redelivery).</td>
+</tr>
+<tr>
+<td>22–42 min</td>
+<td><strong>Deep dive (the crux):</strong> (A) transcode stages + idempotent exactly-once-effect retry (deterministic keys, lease+heartbeat, fencing, CAS completion); (B) autoscaling on queue-depth + backpressure + prioritization + spot. Most time here.</td>
+</tr>
+<tr>
+<td>42–48 min</td>
+<td><strong>Operational maturity:</strong> rolling deploys with drain + health checks, zero job loss by construction. (This is the Staff signal — don't skip it.)</td>
+</tr>
+<tr>
+<td>48–54 min</td>
+<td><strong>Tradeoffs + bottlenecks:</strong> at-least-once+idempotent, segment-level work, hot/huge jobs, poison inputs -&gt; dead-letter, cost blowout.</td>
+</tr>
+<tr>
+<td>54–60 min</td>
+<td><strong>10× evolution + wrap:</strong> GPU/per-title encoding, partitioned queues, multi-region, predictive autoscaling. Restate the big idea: <strong>segment the work, make every unit idempotent at a deterministic key, let the queue absorb bursts, and design workers to be killable so spot + rolling deploys are free.</strong></td>
+</tr>
+</tbody>
+</table></article></div></body></html>
